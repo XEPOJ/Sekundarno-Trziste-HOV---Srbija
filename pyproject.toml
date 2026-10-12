@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "securities-analyzer"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "httpx>=0.27",
+  "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+desktop = ["pywebview>=5.3"]
+dev = ["pytest>=8", "pyinstaller>=6.10"]
+
+[tool.setuptools.packages.find]
+include = ["securities_analyzer*"]
+
+[tool.setuptools.package-data]
+securities_analyzer = ["ui/*", "ui/vendor/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
