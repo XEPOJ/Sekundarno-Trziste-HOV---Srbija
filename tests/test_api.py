@@ -1,3 +1,4 @@
+import csv
 import time
 from datetime import date
 from pathlib import Path
@@ -81,17 +82,26 @@ def test_export(client, tmp_path, fmt):
     assert j["rows"] == 2
     p = Path(j["path"])
     assert p.exists() and p.suffix == f".{fmt}" and p.parent == tmp_path / "exports"
+    assert p.name.startswith("securities_") and not p.name.startswith("securities_pivot_")
+    cols = list(service.ROW_COLUMNS)
+    expected = {("RSMFRSD0000A", "RSD", 100.0), ("RSMFRSD0000B", "RSD", 300.0)}
     if fmt == "csv":
         assert p.read_bytes().startswith(b"\xef\xbb\xbf")
-        lines = p.read_text(encoding="utf-8-sig").splitlines()
-        assert lines[0].split(",") == list(service.ROW_COLUMNS) and len(lines) == 3
+        parsed = list(csv.reader(p.read_text(encoding="utf-8-sig").splitlines()))
+        assert parsed[0] == cols and len(parsed) == 3
+        got = {(r[cols.index("isin")], r[cols.index("currency")], float(r[cols.index("turnover")]))
+               for r in parsed[1:]}
+        assert got == expected
     else:
         from openpyxl import load_workbook
         wb = load_workbook(p)
         ws = wb["Podaci"]
         assert wb.sheetnames == ["Podaci"]
         data = list(ws.iter_rows(values_only=True))
-        assert list(data[0]) == list(service.ROW_COLUMNS) and len(data) == 3
+        assert list(data[0]) == cols and len(data) == 3
+        got = {(r[cols.index("isin")], r[cols.index("currency")], r[cols.index("turnover")])
+               for r in data[1:]}
+        assert got == expected
         wb.close()
 
 
@@ -240,13 +250,28 @@ def test_pivot_export_content(client, tmp_path, fmt):
     body = {"dimensions": ["isin"], "measures": ["turnover", "weighted_yield"],
             "sort_by": "turnover", "order": "desc", "format": fmt}
     j = client.post("/api/export/pivot", json=body).json()
-    assert j["rows"] == 3
+    assert j["rows"] == 3 and j["truncated_currencies"] == []
     p = Path(j["path"])
     assert p.exists() and p.suffix == f".{fmt}" and p.parent == tmp_path / "exports"
+    assert p.name.startswith("securities_pivot_")
     header = ["Valuta", "Hartija (ISIN)", "Promet", "Ponderisani prinos"]
     if fmt == "csv":
-        lines = p.read_text(encoding="utf-8-sig").splitlines()
-        assert lines[0].split(",") == header and len(lines) == 4
+        assert list(csv.reader(p.read_text(encoding="utf-8-sig").splitlines())) == [
+            header,
+            ["EUR", "RSMFRSD0000C", "50.0", "3.0"],
+            ["RSD", "RSMFRSD0000B", "300.0", "6.0"],
+            ["RSD", "RSMFRSD0000A", "100.0", "4.0"]]
     else:
-        ws = load_workbook(p).active
-        assert [c.value for c in ws[1]] == header and ws.max_row == 4
+        wb = load_workbook(p)
+        assert [list(r) for r in wb.active.iter_rows(values_only=True)] == [
+            header,
+            ["EUR", "RSMFRSD0000C", 50.0, 3.0],
+            ["RSD", "RSMFRSD0000B", 300.0, 6.0],
+            ["RSD", "RSMFRSD0000A", 100.0, 4.0]]
+        wb.close()
+
+
+def test_pivot_export_reports_truncated_currencies(client):
+    body = {"dimensions": ["isin"], "limit": 1, "format": "csv"}
+    j = client.post("/api/export/pivot", json=body).json()
+    assert j["truncated_currencies"] == ["RSD"] and j["rows"] == 2

@@ -176,7 +176,8 @@ def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = 
         rows = [[r["currency"], *r["dims"], *r["values"]] for r in res["rows"]]
         path = unique_export_path(export_dir, "securities_pivot", body.format)
         write_table(path, header, rows, body.format)
-        return {"path": str(path), "rows": len(rows)}
+        return {"path": str(path), "rows": len(rows),
+                "truncated_currencies": res["truncated_currencies"]}
 
     @app.get("/api/saved-queries")
     def saved_list(conn=Depends(get_conn)):
