@@ -1,9 +1,7 @@
-import csv
 import json
 import time
 import unicodedata
 from contextlib import closing
-from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -17,8 +15,10 @@ from ..db.repo import data_range, get_meta
 from ..db.schema import connect
 from ..query import service
 from ..query.filters import FilterSpec
-from ..query.pivot import PivotConfig
+from ..query.pivot import PivotConfig, PivotQuery, run_pivot
+from ..query.pivot_catalog import catalog_payload
 from ..updater.nbs import download_year, refresh
+from .exporting import unique_export_path, write_table
 from .jobs import UpdateJob
 
 UI_DIR = Path(__file__).resolve().parents[1] / "ui"
@@ -46,6 +46,14 @@ class ExtremesBody(QueryBody):
 
 
 class ExportBody(QueryBody):
+    format: Literal["csv", "xlsx"] = "csv"
+
+
+class PivotBody(PivotQuery):
+    filter: FilterSpec = Field(default_factory=FilterSpec)
+
+
+class PivotExportBody(PivotBody):
     format: Literal["csv", "xlsx"] = "csv"
 
 
@@ -146,24 +154,28 @@ def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = 
 
     @app.post("/api/export")
     def export(body: ExportBody, conn=Depends(get_conn)):
-        rows = service.fetch_rows(conn, body.filter, limit=10**9)["rows"]
-        export_dir.mkdir(parents=True, exist_ok=True)
-        path = export_dir / f"securities_{datetime.now():%Y%m%d_%H%M%S}.{body.format}"
-        cols = list(service.ROW_COLUMNS)
-        if body.format == "csv":
-            with path.open("w", encoding="utf-8-sig", newline="") as fp:
-                w = csv.writer(fp)
-                w.writerow(cols)
-                w.writerows([[r[c] for c in cols] for r in rows])
-        else:
-            from openpyxl import Workbook
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Podaci"
-            ws.append(cols)
-            for r in rows:
-                ws.append([r[c] for c in cols])
-            wb.save(path)
+        data = service.fetch_rows(conn, body.filter, limit=10**9)["rows"]
+        header = list(service.ROW_COLUMNS)
+        rows = [[r[c] for c in header] for r in data]
+        path = unique_export_path(export_dir, "securities", body.format)
+        write_table(path, header, rows, body.format)
+        return {"path": str(path), "rows": len(rows)}
+
+    @app.get("/api/pivot/catalog")
+    def pivot_catalog():
+        return catalog_payload()
+
+    @app.post("/api/query/pivot")
+    def q_pivot(body: PivotBody, conn=Depends(get_conn)):
+        return run_pivot(conn, body.filter, body)
+
+    @app.post("/api/export/pivot")
+    def export_pivot(body: PivotExportBody, conn=Depends(get_conn)):
+        res = run_pivot(conn, body.filter, body)
+        header = ["Valuta"] + [d["label"] for d in res["dimensions"]] + [m["label"] for m in res["measures"]]
+        rows = [[r["currency"], *r["dims"], *r["values"]] for r in res["rows"]]
+        path = unique_export_path(export_dir, "securities_pivot", body.format)
+        write_table(path, header, rows, body.format)
         return {"path": str(path), "rows": len(rows)}
 
     @app.get("/api/saved-queries")

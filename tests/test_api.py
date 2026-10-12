@@ -3,6 +3,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 from fastapi.testclient import TestClient
 
 from securities_analyzer.api.app import create_app
@@ -195,3 +196,57 @@ def test_saved_query_without_pivot_has_null_and_overwrite_clears(client):
 def test_saved_query_rejects_invalid_pivot(client, pivot):
     r = client.put("/api/saved-queries", json={"name": "bad", "filter": {}, "pivot": pivot})
     assert r.status_code == 422
+
+
+def test_pivot_catalog(client):
+    j = client.get("/api/pivot/catalog").json()
+    assert [d["id"] for d in j["dimensions"]][:2] == ["isin", "date_day"]
+    assert "weighted_yield" in [m["id"] for m in j["measures"]]
+    assert j["limits"]["max_limit"] == 5000
+
+
+def test_pivot_query_default_body_totals_per_currency(client):
+    j = client.post("/api/query/pivot", json={}).json()
+    assert [(r["currency"], r["values"][0]) for r in j["rows"]] == [("EUR", 50.0), ("RSD", 400.0)]
+    assert j["dimensions"] == [] and j["truncated_currencies"] == []
+
+
+def test_pivot_query_group_sort_and_filter(client):
+    body = {"dimensions": ["isin"], "measures": ["turnover"], "sort_by": "turnover", "order": "desc"}
+    j = client.post("/api/query/pivot", json=body).json()
+    assert [(r["currency"], r["dims"][0], r["values"][0]) for r in j["rows"]] == [
+        ("EUR", "RSMFRSD0000C", 50.0), ("RSD", "RSMFRSD0000B", 300.0), ("RSD", "RSMFRSD0000A", 100.0)]
+    j = client.post("/api/query/pivot", json={**body, "filter": {"currency": ["RSD"]}}).json()
+    assert {r["currency"] for r in j["rows"]} == {"RSD"}
+
+
+@pytest.mark.parametrize("body", [
+    {"dimensions": ["nope"]},
+    {"dimensions": ["isin", "date_day", "coupon"]},
+    {"measures": []},
+    {"measures": ["turnover", "turnover"]},
+    {"sort_by": "quantity"},
+    {"limit": 0},
+    {"limit": 5001},
+    {"filter": {"currency": ["rsd"]}},
+    {"unknown": 1},
+])
+def test_pivot_query_rejects_invalid_requests(client, body):
+    assert client.post("/api/query/pivot", json=body).status_code == 422
+
+
+@pytest.mark.parametrize("fmt", ["csv", "xlsx"])
+def test_pivot_export_content(client, tmp_path, fmt):
+    body = {"dimensions": ["isin"], "measures": ["turnover", "weighted_yield"],
+            "sort_by": "turnover", "order": "desc", "format": fmt}
+    j = client.post("/api/export/pivot", json=body).json()
+    assert j["rows"] == 3
+    p = Path(j["path"])
+    assert p.exists() and p.suffix == f".{fmt}" and p.parent == tmp_path / "exports"
+    header = ["Valuta", "Hartija (ISIN)", "Promet", "Ponderisani prinos"]
+    if fmt == "csv":
+        lines = p.read_text(encoding="utf-8-sig").splitlines()
+        assert lines[0].split(",") == header and len(lines) == 4
+    else:
+        ws = load_workbook(p).active
+        assert [c.value for c in ws[1]] == header and ws.max_row == 4
