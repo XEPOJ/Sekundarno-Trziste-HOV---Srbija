@@ -43,7 +43,7 @@ State at close: `main` = v0.1 + Analiza (fast-forward merge), 208 pytest + 31 No
 ## Project-level items still open
 
 - The GitHub workflows (`ci.yml`, `release.yml`) have never run; the YAML was only parsed.
-- NBS terms of use for the bundled seed database are unchecked.
+- NBS terms of use for the bundled seed database are unchecked. Decided 2026-10-12: releases keep shipping the seed database (`data/seed.db` inside the zip); the commit history keeps the original author e-mail.
 - A pinned dependency constraints file is deferred until just before the first public tag.
 - Publishing (public GitHub repo + tag `v0.1.0`) needs an explicit decision; nothing has been pushed and there is no remote.
 - Manual-check recipe for browser verification: copy `data/seed.db` to a scratch folder, run `ensure_user_db(path, None)` on the copy (the raw seed is schema v1; skipping this makes `/api/saved-queries` return 500), serve it with `create_app(path, export_dir=...)` on `127.0.0.1`, and compare against the examples in spec §10.
