@@ -164,3 +164,252 @@ test("tableModel header, rows and units", () => {
   assert.deepEqual(m.rows[0], ["EUR", "#E1", 50, 3.0]);
   assert.deepEqual(m.units, ["currency", "percent_points"]);
 });
+
+// ---------------------------------------------------------------------------
+// Fix round 1: stable colours, raw-value group identity, stronger coverage
+// ---------------------------------------------------------------------------
+
+const yieldMeasure = [{id: "weighted_yield", label: "Ponderisani prinos", unit: "percent_points"}];
+const dimsYB = [{id: "date_year", label: "Godina"}, {id: "remaining_bucket", label: "Preostali rok (grupa)"}];
+
+test("two dimensions: a series keeps the same colour in every currency panel", () => {
+  const res = {
+    dimensions: dimsYB, measures: yieldMeasure, truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: ["2020", "0-1Y"], values: [1.5]},
+      {currency: "RSD", dims: ["2020", "1-3Y"], values: [2.0]},
+      {currency: "EUR", dims: ["2020", "1-3Y"], values: [3.0]},
+    ],
+  };
+  const fig = PC.buildFigure(res, {type: "bar"}, {colorFor});
+  const longs = fig.data.filter((t) => t.name === "1-3Y");
+  const short = fig.data.find((t) => t.name === "0-1Y");
+  assert.equal(longs.length, 2);
+  assert.equal(longs[0].marker.color, longs[1].marker.color);
+  assert.notEqual(longs[0].marker.color, short.marker.color);
+  assert.equal(longs[0].xaxis, "x");
+  assert.equal(longs[1].xaxis, "x2");
+});
+
+test("same display label for two raw values keeps two categories (bar)", () => {
+  const res = {
+    dimensions: [{id: "isin", label: "Hartija"}], measures: [oneDim.measures[0]], truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: ["a"], values: [10]},
+      {currency: "RSD", dims: ["b"], values: [20]},
+      {currency: "EUR", dims: ["a"], values: [5]},
+    ],
+  };
+  const fig = PC.buildFigure(res, {type: "bar"}, {colorFor, labelFor: () => "Same"});
+  const [rsd, eur] = fig.data;
+  assert.deepEqual(rsd.x, ['Same ["a"]', 'Same ["b"]']);
+  assert.deepEqual(rsd.y, [10, 20]);
+  // decided across all rows, so the EUR panel uses the same disambiguated label
+  assert.deepEqual(eur.x, ['Same ["a"]']);
+  assert.deepEqual(eur.y, [5]);
+});
+
+test("labels stay plain when no two raw values share a label", () => {
+  const fig = PC.buildFigure(oneMeasure, {type: "bar"}, {colorFor, labelFor: (id, v) => `<${v}>`});
+  assert.deepEqual(fig.data[0].x, ["<E1>", "<E2>"]);
+});
+
+test("same display label in the second dimension keeps two series (bar)", () => {
+  const res = {
+    dimensions: dimsYB, measures: yieldMeasure, truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: ["2020", "x"], values: [1]},
+      {currency: "RSD", dims: ["2020", "y"], values: [2]},
+    ],
+  };
+  const fig = PC.buildFigure(res, {type: "bar"}, {colorFor, labelFor: (id, v) => (id === "remaining_bucket" ? "Same" : v)});
+  assert.equal(fig.data.length, 2);
+  assert.deepEqual(fig.data.map((t) => t.name), ['Same ["x"]', 'Same ["y"]']);
+  assert.deepEqual(fig.data.map((t) => t.y), [[1], [2]]);
+  assert.notEqual(fig.data[0].marker.color, fig.data[1].marker.color);
+});
+
+test("null and the string 'null' are separate groups (bar)", () => {
+  const res = {
+    dimensions: [{id: "isin", label: "Hartija"}], measures: [oneDim.measures[0]], truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: [null], values: [1]},
+      {currency: "RSD", dims: ["null"], values: [2]},
+    ],
+  };
+  const t = PC.buildFigure(res, {type: "bar"}, {colorFor}).data[0];
+  assert.equal(t.x.length, 2);
+  assert.notEqual(t.x[0], t.x[1]);
+  assert.deepEqual(t.y, [1, 2]);
+});
+
+test("5 and '5' are separate groups (bar)", () => {
+  const res = {
+    dimensions: [{id: "isin", label: "Hartija"}], measures: [oneDim.measures[0]], truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: [5], values: [1]},
+      {currency: "RSD", dims: ["5"], values: [2]},
+    ],
+  };
+  const t = PC.buildFigure(res, {type: "bar"}, {colorFor}).data[0];
+  assert.equal(t.x.length, 2);
+  assert.notEqual(t.x[0], t.x[1]);
+  assert.deepEqual(t.y, [1, 2]);
+});
+
+test("heatmap: same display label for two raw values stays two columns/rows", () => {
+  const res = {
+    dimensions: dimsYB, measures: yieldMeasure, truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: ["a", "p"], values: [1]},
+      {currency: "RSD", dims: ["b", "p"], values: [2]},
+      {currency: "RSD", dims: ["a", "q"], values: [3]},
+      {currency: "RSD", dims: ["b", "q"], values: [4]},
+    ],
+  };
+  const t = PC.buildFigure(res, {type: "heatmap"}, {colorFor, labelFor: () => "Same"}).data[0];
+  assert.equal(t.x.length, 2);
+  assert.equal(t.y.length, 2);
+  assert.notEqual(t.x[0], t.x[1]);
+  assert.notEqual(t.y[0], t.y[1]);
+  assert.deepEqual(t.z, [[1, 2], [3, 4]]);
+});
+
+test("heatmap: null and the string 'null' do not merge", () => {
+  const res = {
+    dimensions: dimsYB, measures: yieldMeasure, truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: [null, "p"], values: [1]},
+      {currency: "RSD", dims: ["null", "p"], values: [2]},
+    ],
+  };
+  const t = PC.buildFigure(res, {type: "heatmap"}, {colorFor}).data[0];
+  assert.equal(t.x.length, 2);
+  assert.deepEqual(t.z, [[1, 2]]);
+});
+
+test("scatter hover text disambiguates points that share a label", () => {
+  const res = {
+    dimensions: [{id: "isin", label: "Hartija"}], measures: oneDim.measures, truncated_currencies: [],
+    rows: [
+      {currency: "RSD", dims: ["a"], values: [1, 2]},
+      {currency: "RSD", dims: ["b"], values: [3, 4]},
+    ],
+  };
+  const t = PC.buildFigure(res, {type: "scatter"}, {colorFor, labelFor: () => "Same"}).data[0];
+  assert.deepEqual(t.text, ['Same ["a"]', 'Same ["b"]']);
+});
+
+const threeMeasures = [...oneDim.measures, {id: "quantity", label: "Kolicina", unit: "pieces"}];
+const scatterRes = (rows) => ({dimensions: oneDim.dimensions, measures: threeMeasures, rows, truncated_currencies: []});
+
+test("scatter: marker sizes are normalised per currency", () => {
+  const res = scatterRes([
+    {currency: "RSD", dims: ["A"], values: [1, 1, 1e9]},
+    {currency: "RSD", dims: ["B"], values: [1, 1, 4e8]},
+    {currency: "EUR", dims: ["E1"], values: [1, 1, 10]},
+    {currency: "EUR", dims: ["E2"], values: [1, 1, 2.5]},
+  ]);
+  const [rsd, eur] = PC.buildFigure(res, {type: "scatter"}, {colorFor}).data;
+  assert.equal(rsd.name, "RSD");
+  assert.equal(rsd.marker.size[0], 28);
+  assert.equal(eur.marker.size[0], 28);
+  assert.ok(Math.abs(rsd.marker.size[1] - Math.sqrt(0.4) * 28) < 1e-9);
+  assert.ok(Math.abs(eur.marker.size[1] - 14) < 1e-9);
+});
+
+test("scatter: null, undefined, zero and all-zero sizes never give NaN, zero or negative markers", () => {
+  const mixed = scatterRes([
+    {currency: "RSD", dims: ["A"], values: [1, 1, 100]},
+    {currency: "RSD", dims: ["B"], values: [1, 1, null]},
+    {currency: "RSD", dims: ["C"], values: [1, 1]},
+    {currency: "RSD", dims: ["D"], values: [1, 1, 0]},
+    {currency: "RSD", dims: ["E"], values: [1, 1, -100]},
+  ]);
+  const s = PC.buildFigure(mixed, {type: "scatter"}, {colorFor}).data[0].marker.size;
+  assert.equal(s[0], 28);
+  assert.deepEqual(s.slice(1, 4), [6, 6, 6]);
+  assert.equal(s[4], 28); // size encodes magnitude, so -100 is as large as 100
+  const zeros = scatterRes([
+    {currency: "RSD", dims: ["A"], values: [1, 1, 0]},
+    {currency: "RSD", dims: ["B"], values: [1, 1, null]},
+  ]);
+  for (const v of PC.buildFigure(zeros, {type: "scatter"}, {colorFor}).data[0].marker.size) {
+    assert.ok(Number.isFinite(v) && v >= 6);
+  }
+});
+
+test("scatter with two currencies: panels, axes, titles, layout keys, grid", () => {
+  const fig = PC.buildFigure(oneDim, {type: "scatter"}, {colorFor});
+  assert.equal(fig.data.length, 2);
+  assert.deepEqual(fig.data.map((t) => [t.xaxis, t.yaxis]), [["x", "y"], ["x2", "y2"]]);
+  assert.deepEqual(fig.layout.annotations.map((a) => a.text), ["EUR", "RSD"]);
+  assert.equal(fig.layout.xaxis.title.text, "Promet");
+  assert.equal(fig.layout.xaxis2.title.text, "Promet");
+  assert.equal(fig.layout.yaxis2.title.text, "Ponderisani prinos");
+  assert.equal(fig.layout.grid.pattern, "independent");
+  assert.equal(fig.layout.grid.rows, 1);
+  assert.equal(fig.layout.grid.columns, 2);
+});
+
+test("heatmap with two currencies: panels, titles, layout keys, scale only for a single currency", () => {
+  const res = {
+    dimensions: dimsYB, measures: yieldMeasure, truncated_currencies: [],
+    rows: [
+      {currency: "EUR", dims: ["2020", "0-1Y"], values: [3]},
+      {currency: "RSD", dims: ["2020", "0-1Y"], values: [1]},
+    ],
+  };
+  const fig = PC.buildFigure(res, {type: "heatmap"}, {colorFor});
+  assert.deepEqual(fig.data.map((t) => [t.xaxis, t.yaxis, t.showscale]), [["x", "y", false], ["x2", "y2", false]]);
+  assert.deepEqual(fig.layout.annotations.map((a) => a.text), ["EUR", "RSD"]);
+  assert.equal(fig.layout.xaxis2.type, "category");
+  assert.equal(fig.layout.yaxis2.autorange, "reversed");
+  assert.equal(fig.layout.grid.pattern, "independent");
+  assert.equal(fig.layout.grid.columns, 2);
+  assert.equal(PC.buildFigure(twoDims, {type: "heatmap"}, {colorFor}).data[0].showscale, true);
+});
+
+test("layout: 2 measures x 2 currencies use axes 1-4 on an independent 2x2 grid", () => {
+  const fig = PC.buildFigure(oneDim, {type: "bar"}, {colorFor});
+  for (const key of ["xaxis", "xaxis2", "xaxis3", "xaxis4", "yaxis", "yaxis2", "yaxis3", "yaxis4"]) {
+    assert.ok(fig.layout[key], `missing layout.${key}`);
+  }
+  assert.equal(fig.layout.yaxis3.title.text, "Ponderisani prinos");
+  assert.equal(fig.layout.yaxis4.title.text, "Ponderisani prinos");
+  assert.deepEqual(fig.data.map((t) => [t.xaxis, t.yaxis]), [["x", "y"], ["x2", "y2"], ["x3", "y3"], ["x4", "y4"]]);
+  assert.equal(fig.layout.grid.pattern, "independent");
+  assert.equal(fig.layout.grid.rows, 2);
+  assert.equal(fig.layout.grid.columns, 2);
+});
+
+test("horizontal bars with two dimensions", () => {
+  const fig = PC.buildFigure(twoDims, {type: "bar", horizontal: true}, {colorFor});
+  const byName = Object.fromEntries(fig.data.map((t) => [t.name, t]));
+  assert.equal(byName["0-1Y"].orientation, "h");
+  assert.deepEqual(byName["0-1Y"].y, ["2020", "2021"]);
+  assert.deepEqual(byName["0-1Y"].x, [1.5, 1.0]);
+  assert.deepEqual(byName["1-3Y"].x, [2.0, null]);
+  assert.equal(fig.layout.yaxis.autorange, "reversed");
+  assert.equal(fig.layout.xaxis.title.text, "Ponderisani prinos");
+  assert.equal(fig.layout.showlegend, true);
+});
+
+test("tableModel without labelFor keeps raw values", () => {
+  const m = PC.tableModel(oneDim);
+  assert.deepEqual(m.rows[2], ["RSD", "A", 400, 5.5]);
+  assert.deepEqual(m.header, ["Valuta", "Hartija (ISIN)", "Promet", "Ponderisani prinos"]);
+});
+
+test("helpers with colorFor: undefined fall back to the default colour", () => {
+  const fig = PC.buildFigure(oneMeasure, {type: "bar"}, {colorFor: undefined, labelFor: undefined});
+  assert.match(fig.data[0].marker.color, /^#[0-9a-f]{6}$/);
+  assert.ok(PC.buildFigure(oneMeasure, {type: "line"}, {colorFor: undefined}));
+  assert.ok(PC.buildFigure(oneMeasure, {type: "bar"}));
+});
+
+test("buildFigure returns null (does not throw) for a missing config or type", () => {
+  assert.equal(PC.buildFigure(oneDim, undefined, {colorFor}), null);
+  assert.equal(PC.buildFigure(oneDim, null, {colorFor}), null);
+  assert.equal(PC.buildFigure(oneDim, {}, {colorFor}), null);
+});

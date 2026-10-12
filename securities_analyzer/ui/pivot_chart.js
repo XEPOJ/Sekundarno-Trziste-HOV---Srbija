@@ -35,10 +35,32 @@
     return {sort_by: "group", order: "asc"};
   }
 
-  function dimLabel(result, row, i, labelFor) {
-    const id = result.dimensions[i].id;
-    const v = row.dims[i];
-    return String(labelFor ? labelFor(id, v) : v);
+  // Group identity is the RAW dimension value (type included: 5 != "5", null != "null");
+  // labels are for display only.
+  const rawKey = (v) => (v === undefined ? "undefined" : JSON.stringify(v));
+  const rawText = (v) => (v === undefined ? "undefined" : JSON.stringify(v));
+
+  // One display-label table per dimension, decided across ALL rows so that labels agree between
+  // currency panels. When two distinct raw values would share a label (Plotly category axes merge
+  // identical strings), the label becomes "label [raw]".
+  function groupLabels(result, labelFor) {
+    return result.dimensions.map((dim, i) => {
+      const raws = new Map();
+      result.rows.forEach((r) => {
+        const k = rawKey(r.dims[i]);
+        if (!raws.has(k)) raws.set(k, r.dims[i]);
+      });
+      const base = new Map();
+      const uses = new Map();
+      raws.forEach((v, k) => {
+        const label = String(labelFor ? labelFor(dim.id, v) : v);
+        base.set(k, label);
+        uses.set(label, (uses.get(label) || 0) + 1);
+      });
+      const labels = new Map();
+      base.forEach((label, k) => labels.set(k, uses.get(label) > 1 ? `${label} [${rawText(raws.get(k))}]` : label));
+      return {order: [...raws.keys()], labels};
+    });
   }
 
   function panelTitle(text, r, c, nRows, nCols) {
@@ -49,6 +71,7 @@
   const gridOf = (rows, columns) => ({rows, columns, pattern: "independent", xgap: 0.12, ygap: 0.35});
 
   function barLine(result, config, h, currencies) {
+    const groups = groupLabels(result, h.labelFor);
     const twoDims = result.dimensions.length === 2;
     const measureIdx = twoDims ? [0] : result.measures.map((_, i) => i);
     const nRows = measureIdx.length;
@@ -64,25 +87,26 @@
       currencies.forEach((cur, c) => {
         const k = r * nCols + c + 1;
         const rows = result.rows.filter((x) => x.currency === cur);
-        const cats = uniq(rows.map((x) => dimLabel(result, x, 0, h.labelFor)));
-        const names = twoDims ? uniq(rows.map((x) => dimLabel(result, x, 1, h.labelFor))) : [measure.label];
+        const cats = uniq(rows.map((x) => rawKey(x.dims[0])));
+        const series = twoDims ? uniq(rows.map((x) => rawKey(x.dims[1]))) : [null];
         const lookup = new Map();
-        rows.forEach((x) => {
-          const key = dimLabel(result, x, 0, h.labelFor) + "\u0000" + (twoDims ? dimLabel(result, x, 1, h.labelFor) : "");
-          lookup.set(key, x.values[mi]);
-        });
-        names.forEach((name, si) => {
+        rows.forEach((x) => lookup.set(rawKey(x.dims[0]) + "\u0000" + (twoDims ? rawKey(x.dims[1]) : ""), x.values[mi]));
+        series.forEach((sKey) => {
           const vals = cats.map((cat) => {
-            const v = lookup.get(cat + "\u0000" + (twoDims ? name : ""));
+            const v = lookup.get(cat + "\u0000" + (twoDims ? sKey : ""));
             return v === undefined ? null : v;
           });
-          const color = twoDims ? PALETTE[si % PALETTE.length] : h.colorFor(cur);
+          const name = twoDims ? groups[1].labels.get(sKey) : measure.label;
+          // Colour comes from the series' position in the GLOBAL order, so a series has the same
+          // colour in every currency panel (the legend is shared across panels).
+          const color = twoDims ? PALETTE[groups[1].order.indexOf(sKey) % PALETTE.length] : h.colorFor(cur);
           const trace = {
             type: isLine ? "scatter" : "bar", name, legendgroup: name,
             showlegend: twoDims && !seen.has(name), xaxis: axisRef("x", k), yaxis: axisRef("y", k),
           };
           if (isLine) { trace.mode = "lines+markers"; trace.line = {color}; } else { trace.marker = {color}; }
-          if (horizontal) { trace.x = vals; trace.y = cats; trace.orientation = "h"; } else { trace.x = cats; trace.y = vals; }
+          const catLabels = cats.map((k) => groups[0].labels.get(k));
+          if (horizontal) { trace.x = vals; trace.y = catLabels; trace.orientation = "h"; } else { trace.x = catLabels; trace.y = vals; }
           seen.add(name);
           data.push(trace);
         });
@@ -97,6 +121,7 @@
   }
 
   function scatter(result, h, currencies) {
+    const groups = groupLabels(result, h.labelFor);
     const nCols = currencies.length;
     const data = [];
     const annotations = [];
@@ -105,11 +130,12 @@
       const k = c + 1;
       const rows = result.rows.filter((x) => x.currency === cur);
       const hasSize = result.measures.length >= 3;
+      // Size encodes magnitude, so negative values of the size measure are plotted by absolute value.
       const maxSize = hasSize ? Math.max(...rows.map((x) => Math.abs(x.values[2] || 0)), 0) || 1 : 1;
       data.push({
         type: "scatter", mode: "markers", name: cur,
         x: rows.map((x) => x.values[0]), y: rows.map((x) => x.values[1]),
-        text: rows.map((x) => result.dimensions.map((_, i) => dimLabel(result, x, i, h.labelFor)).join(" · ")),
+        text: rows.map((x) => result.dimensions.map((_, i) => groups[i].labels.get(rawKey(x.dims[i]))).join(" · ")),
         marker: {
           color: h.colorFor(cur), opacity: 0.7,
           size: rows.map((x) => (hasSize ? Math.max(6, Math.sqrt(Math.abs(x.values[2] || 0) / maxSize) * 28) : 10)),
@@ -125,6 +151,7 @@
   }
 
   function heatmap(result, h, currencies) {
+    const groups = groupLabels(result, h.labelFor);
     const nCols = currencies.length;
     const data = [];
     const annotations = [];
@@ -132,12 +159,14 @@
     currencies.forEach((cur, c) => {
       const k = c + 1;
       const rows = result.rows.filter((x) => x.currency === cur);
-      const xs = uniq(rows.map((x) => dimLabel(result, x, 0, h.labelFor)));
-      const ys = uniq(rows.map((x) => dimLabel(result, x, 1, h.labelFor)));
+      const xs = uniq(rows.map((x) => rawKey(x.dims[0])));
+      const ys = uniq(rows.map((x) => rawKey(x.dims[1])));
       const lookup = new Map();
-      rows.forEach((x) => lookup.set(dimLabel(result, x, 0, h.labelFor) + "\u0000" + dimLabel(result, x, 1, h.labelFor), x.values[0]));
+      rows.forEach((x) => lookup.set(rawKey(x.dims[0]) + "\u0000" + rawKey(x.dims[1]), x.values[0]));
       data.push({
-        type: "heatmap", name: cur, x: xs, y: ys, colorscale: "Blues", hoverongaps: false,
+        type: "heatmap", name: cur,
+        x: xs.map((k) => groups[0].labels.get(k)), y: ys.map((k) => groups[1].labels.get(k)),
+        colorscale: "Blues", hoverongaps: false,
         z: ys.map((y) => xs.map((x) => { const v = lookup.get(x + "\u0000" + y); return v === undefined ? null : v; })),
         showscale: nCols === 1, xaxis: axisRef("x", k), yaxis: axisRef("y", k),
       });
@@ -149,7 +178,12 @@
   }
 
   function buildFigure(result, config, helpers) {
-    const h = Object.assign({labelFor: null, colorFor: () => PALETTE[0]}, helpers || {});
+    if (!result || !config || !config.type) return null;
+    const given = helpers || {};
+    const h = {
+      labelFor: typeof given.labelFor === "function" ? given.labelFor : null,
+      colorFor: typeof given.colorFor === "function" ? given.colorFor : () => PALETTE[0],
+    };
     const hint = chartHint(config.type, result.dimensions.length, result.measures.length);
     if (config.type === "table" || !hint.ok || !result.rows.length) return null;
     const currencies = uniq(result.rows.map((r) => r.currency));
