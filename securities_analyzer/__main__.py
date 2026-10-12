@@ -35,7 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "fetch-all":
         return _fetch_all(args.out_dir, args.from_year)
     if args.cmd == "build-seed":
-        n = build_seed(args.csv_dir, args.out_db)
+        try:
+            n = build_seed(args.csv_dir, args.out_db)
+        except ValueError as e:
+            print(f"build-seed failed: {e}", file=sys.stderr)
+            return 1
         print(f"Imported {n} rows into {args.out_db}")
         return 0
     return 1

@@ -1,4 +1,5 @@
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -46,6 +47,21 @@ def test_replace_year_is_atomic_on_key_collision(conn):
     assert stored_count(conn, 2023) == 1
 
 
+def test_collision_rolls_back_a_populated_target_year(conn):
+    stored_2023 = make_row()
+    originals = [make_row(trade_date=date(2024, 3, 1), settlement_date=date(2024, 3, 1),
+                          isin=f"RSMFRSD0010{i}") for i in range(3)]
+    replace_year(conn, 2023, [stored_2023])
+    replace_year(conn, 2024, originals)
+    new_row = make_row(trade_date=date(2024, 4, 1), settlement_date=date(2024, 4, 1),
+                       isin="RSMFRSD00200")
+    with pytest.raises(KeyCollisionError):
+        replace_year(conn, 2024, [new_row, stored_2023])
+    keys = {r["isin"] for r in conn.execute("SELECT isin FROM trades WHERE source_year = 2024")}
+    assert keys == {r.isin for r in originals}
+    assert stored_count(conn, 2023) == 1
+
+
 def test_last_source_year_and_range(conn):
     assert last_source_year(conn) is None
     assert data_range(conn) == (None, None, 0)
@@ -89,6 +105,47 @@ def test_build_seed_and_ensure_user_db(tmp_path):
     c = connect(user)
     assert data_range(c)[2] == 1
     c.close()
+
+
+def test_ensure_user_db_failed_copy_leaves_no_db_and_no_tmp(tmp_path, monkeypatch):
+    seed = tmp_path / "seed.db"
+    seed.write_bytes(b"seed")
+    user = tmp_path / "user" / "data.db"
+
+    def boom(src, dst, *a, **kw):
+        Path(dst).write_bytes(b"partial")          # simulate a half-written copy
+        raise OSError("disk full")
+
+    monkeypatch.setattr("securities_analyzer.db.seed.shutil.copyfile", boom)
+    with pytest.raises(OSError):
+        ensure_user_db(user, seed)
+    assert not user.exists()
+    assert list(user.parent.iterdir()) == []
+
+
+def test_ensure_user_db_leaves_no_tmp_file_on_success(tmp_path):
+    seed = tmp_path / "seed.db"
+    build_seed_dir = tmp_path / "raw"
+    build_seed_dir.mkdir()
+    (build_seed_dir / "GovermentSecuritySecondaryTrade_2023.csv").write_bytes(rows_to_csv([make_row()]))
+    build_seed(build_seed_dir, seed)
+    user = tmp_path / "user" / "data.db"
+    ensure_user_db(user, seed)
+    assert [p.name for p in user.parent.iterdir()] == ["data.db"]
+
+
+def test_build_seed_fails_without_csv_files(tmp_path):
+    (tmp_path / "raw").mkdir()
+    with pytest.raises(ValueError, match="CSV"):
+        build_seed(tmp_path / "raw", tmp_path / "seed.db")
+
+
+def test_build_seed_fails_when_no_rows_imported(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "GovermentSecuritySecondaryTrade_2023.csv").write_bytes(rows_to_csv([]))
+    with pytest.raises(ValueError, match="0 redova|0 rows"):
+        build_seed(raw, tmp_path / "seed.db")
 
 
 def test_ensure_user_db_without_seed_creates_empty(tmp_path):

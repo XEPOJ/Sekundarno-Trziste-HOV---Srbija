@@ -27,6 +27,15 @@ def test_build_seed_command(tmp_path, capsys):
     assert "Imported 1 rows" in capsys.readouterr().out
 
 
+def test_build_seed_command_fails_on_empty_input(tmp_path, capsys):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    assert main(["build-seed", str(raw), str(tmp_path / "seed.db")]) != 0
+    (raw / "GovermentSecuritySecondaryTrade_2023.csv").write_bytes(rows_to_csv([]))
+    assert main(["build-seed", str(raw), str(tmp_path / "seed.db")]) != 0
+    assert "Imported" not in capsys.readouterr().out
+
+
 def test_fetch_all_command_writes_one_file_per_year(tmp_path, monkeypatch):
     calls = []
     def fake_download(year, **kw):
