@@ -1,7 +1,6 @@
 import csv
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -75,8 +74,8 @@ def test_write_table_csv_failure_leaves_no_files(tmp_path, monkeypatch):
 def test_write_table_xlsx_failure_leaves_no_files(tmp_path, monkeypatch):
     path = exporting.unique_export_path(tmp_path, "securities", "xlsx")
 
-    def boom(self, filename):
-        Path(filename).write_bytes(b"partial")
+    def boom(self, target):
+        target.write(b"partial")
         raise RuntimeError("boom")
 
     monkeypatch.setattr(Workbook, "save", boom)
@@ -89,3 +88,16 @@ def test_write_table_success_leaves_only_the_final_file(tmp_path):
     path = exporting.unique_export_path(tmp_path, "securities", "csv")
     exporting.write_table(path, ["A"], [[1]], "csv")
     assert [p.name for p in tmp_path.iterdir()] == [path.name]
+
+
+def test_write_table_xlsx_writer_failure_leaves_no_files(tmp_path, monkeypatch):
+    """Real failure mode: openpyxl's ExcelWriter raises while it holds the archive open."""
+    path = exporting.unique_export_path(tmp_path, "securities", "xlsx")
+
+    def boom(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("openpyxl.writer.excel.ExcelWriter.write_data", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        exporting.write_table(path, ["A"], [[1]], "xlsx")
+    assert list(tmp_path.iterdir()) == []

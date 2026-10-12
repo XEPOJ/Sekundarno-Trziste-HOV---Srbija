@@ -1,4 +1,5 @@
 import csv
+import io
 import os
 from datetime import datetime
 from pathlib import Path
@@ -40,9 +41,16 @@ def write_table(path: Path, header: list[str], rows: list[list], fmt: Literal["c
             ws.append(header)
             for r in rows:
                 ws.append(r)
-            wb.save(part)
+            # Save to memory: openpyxl leaks its open ZipFile when it fails mid-save, which on
+            # Windows would keep a file lock on the .part file and break the cleanup below.
+            buf = io.BytesIO()
+            wb.save(buf)
+            part.write_bytes(buf.getvalue())
         os.replace(part, path)
     except BaseException:
-        part.unlink(missing_ok=True)
-        path.unlink(missing_ok=True)
+        for f in (part, path):   # best effort and independent: never mask the original error
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
         raise
