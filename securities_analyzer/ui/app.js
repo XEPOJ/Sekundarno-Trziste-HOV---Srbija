@@ -4,7 +4,11 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&l
 const fmt = (n, d = 0) => n == null ? "–" : Number(n).toLocaleString("sr-RS", {minimumFractionDigits: d, maximumFractionDigits: d});
 const COLORS = {RSD: "#1f6feb", EUR: "#d9480f"};
 const colorFor = (c) => COLORS[c] || "#6b7280";
-const state = {tab: "time", sort: "trade_date", order: "desc", page: 1, pageSize: 100, total: 0, exSort: "trade_date", exOrder: "desc", emptyDb: false, loadError: ""};
+const state = {tab: "time", sort: "trade_date", order: "desc", page: 1, pageSize: 100, total: 0, exSort: "trade_date", exOrder: "desc", emptyDb: false, loadError: "", currencies: []};
+// request tokens: a response is applied only if no newer request of the same kind was started after it
+const seq = {all: 0, tab: 0, rows: 0};
+const BASIS_WORD = {avg: "prosečni", min: "minimalni", max: "maksimalni"};
+const basisLabel = (b) => `Prinos: ${BASIS_WORD[b] || BASIS_WORD.avg} (osnova)`;
 
 async function api(path, {method, body} = {}) {
   const opts = body === undefined && !method ? {} :
@@ -56,7 +60,8 @@ function writeFilter(f) {
     }
   }
   if (f.turnover_min != null) $("turnover_min").value = f.turnover_min;
-  for (const c of document.querySelectorAll("input[name=currency]")) c.checked = (f.currency || []).includes(c.value);
+  // a saved currency that is no longer listed stays visible (and applied) instead of being dropped silently
+  renderCurrencies(state.currencies, f.currency || []);
   for (const o of $("isin").options) o.selected = (f.isin || []).includes(o.value);
 }
 
@@ -64,12 +69,21 @@ function resetForm() {
   document.querySelectorAll("#filters input[type=number], #filters input[type=date]").forEach((i) => (i.value = ""));
   document.querySelectorAll("#filters input[type=checkbox]").forEach((i) => (i.checked = false));
   $("yield_basis").value = "avg";
+  renderCurrencies(state.currencies, []);
   for (const o of $("isin").options) o.selected = false;
 }
 
+// Currency checkboxes come from the data (distinct currencies in /api/securities) plus any checked extras.
+function renderCurrencies(listed, checked) {
+  const all = [...new Set([...listed, ...checked])].sort();
+  $("currency-list").innerHTML = all.map((c) =>
+    `<label class="chk"><input type="checkbox" name="currency" value="${esc(c)}"${checked.includes(c) ? " checked" : ""}> ${esc(c)}</label>`).join("");
+}
+
 /* ---------- rendering ---------- */
-function renderKpis(summary) {
+function renderKpis(summary, basis) {
   const el = $("kpis");
+  $("kpi-head").textContent = basisLabel(basis);
   if (!summary.kpis.length) { el.innerHTML = '<div class="kpi-empty">Nema rezultata za izabrane filtere.</div>'; return; }
   el.innerHTML = summary.kpis.map((k) => `
     <div class="kpi-card">
@@ -95,7 +109,7 @@ const ROW_COLS = [
   ["turnover", "Promet", 2], ["quality_flag", "Kvalitet", "l"],
 ];
 
-function renderRows(res) {
+function renderRows(res, basis) {
   state.total = res.total;
   const head = "<thead><tr>" + ROW_COLS.map(([k, label, kind]) =>
     `<th data-sort="${k}" class="${kind === "l" ? "l" : ""}">${label}${state.sort === k ? (state.order === "asc" ? " ▲" : " ▼") : ""}</th>`).join("") + "</tr></thead>";
@@ -107,7 +121,7 @@ function renderRows(res) {
   $("page-info").textContent = `${fmt(res.total)} redova · strana ${state.page} / ${pages}`;
   $("prev").disabled = state.page <= 1;
   $("next").disabled = state.page >= pages;
-  $("table-title").textContent = `Redovi (${fmt(res.total)})`;
+  $("table-title").textContent = `Redovi (${fmt(res.total)}) · ${basisLabel(basis)}`;
 }
 
 // purge first: tabs use different axis layouts (e.g. the per-currency subplots) that must not leak between tabs
@@ -163,18 +177,25 @@ function drawBuckets(rows) {
   plot(traces, layout);
 }
 
-// chartRows: all days in chronological order; tableRows: top rows in the user's chosen sort
-function drawExtremes(chartRows, tableRows) {
+// chartRows: all days in chronological order; tableRows: top rows in the user's chosen sort;
+// avgRows: daily turnover-weighted average yield per currency (drawn over the band)
+function drawExtremes(chartRows, tableRows, avgRows) {
   const tbl = $("extremes-table");
   if (!chartRows.length) { emptyChart("Nema podataka"); tbl.innerHTML = ""; return; }
-  const chronological = [...chartRows].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
+  const avgByCur = groupBy(avgRows, "currency");
   const traces = [];
-  for (const [cur, rs] of Object.entries(groupBy(chronological, "currency"))) {
+  for (const [cur, rs] of Object.entries(groupBy(chartRows, "currency"))) {
     traces.push({type: "scatter", mode: "lines", name: `${cur} najmanji`, x: rs.map((r) => r.trade_date),
                  y: rs.map((r) => r.lowest_pct), line: {color: colorFor(cur), width: 1}});
     traces.push({type: "scatter", mode: "lines", name: `${cur} najveći`, x: rs.map((r) => r.trade_date),
                  y: rs.map((r) => r.highest_pct), line: {color: colorFor(cur), width: 1},
                  fill: "tonexty", fillcolor: colorFor(cur) + "33"});
+    const av = avgByCur[cur] || [];
+    if (av.length) {
+      traces.push({type: "scatter", mode: "lines", name: `${cur} ponderisani prosek`, x: av.map((r) => r.period),
+                   y: av.map((r) => r.weighted_yield_pct), line: {color: colorFor(cur), width: 2.5, dash: "dash"},
+                   hovertemplate: "%{x}<br>%{y:.2f}%<extra>" + cur + " ponderisani prosek</extra>"});
+    }
   }
   plot(traces, {yaxis: {title: "Prinos (%)"}});
   tbl.innerHTML = "<table><thead><tr><th class='l'>Datum</th><th class='l'>Val.</th><th>Najveći %</th><th class='l'>ISIN</th><th>Najmanji %</th><th class='l'>ISIN</th><th>Raspon</th></tr></thead><tbody>" +
@@ -184,35 +205,49 @@ function drawExtremes(chartRows, tableRows) {
 
 /* ---------- data loading ---------- */
 async function loadTab() {
+  const my = ++seq.tab;
   const filter = readFilter();
   $("gran-wrap").hidden = state.tab !== "time";
   $("exsort-wrap").hidden = state.tab !== "extremes";
   $("extremes-table").hidden = state.tab !== "extremes";
-  if (state.tab === "time") drawTime(await api("/api/query/timeseries", {body: {filter, granularity: $("gran").value}}));
-  else if (state.tab === "scatter") drawScatter(await api("/api/query/scatter", {body: {filter}}));
-  else if (state.tab === "buckets") drawBuckets(await api("/api/query/buckets", {body: {filter}}));
-  else {
-    const [chartRows, tableRows] = await Promise.all([
-      api("/api/query/extremes", {body: {filter, sort_by: "trade_date", order: "asc", limit: 5000}}),
+  if (state.tab === "time") {
+    const res = await api("/api/query/timeseries", {body: {filter, granularity: $("gran").value}});
+    if (my === seq.tab) drawTime(res);
+  } else if (state.tab === "scatter") {
+    const res = await api("/api/query/scatter", {body: {filter}});
+    if (my === seq.tab) drawScatter(res);
+  } else if (state.tab === "buckets") {
+    const res = await api("/api/query/buckets", {body: {filter}});
+    if (my === seq.tab) drawBuckets(res);
+  } else {
+    // newest-first, so the 5000-row cap can only drop the OLDEST days; reversed below for drawing
+    const [newestFirst, tableRows, avgRows] = await Promise.all([
+      api("/api/query/extremes", {body: {filter, sort_by: "trade_date", order: "desc", limit: 5000}}),
       api("/api/query/extremes", {body: {filter, sort_by: state.exSort, order: state.exOrder, limit: 500}}),
+      api("/api/query/timeseries", {body: {filter, granularity: "day"}}),
     ]);
-    drawExtremes(chartRows, tableRows);
+    if (my === seq.tab) drawExtremes([...newestFirst].reverse(), tableRows, avgRows);
   }
 }
 
 async function loadRows() {
-  const res = await api("/api/query/rows", {body: {filter: readFilter(), sort: state.sort, order: state.order, page: state.page, page_size: state.pageSize}});
-  renderRows(res);
+  const my = ++seq.rows;
+  const filter = readFilter();
+  const res = await api("/api/query/rows", {body: {filter, sort: state.sort, order: state.order, page: state.page, page_size: state.pageSize}});
+  if (my === seq.rows) renderRows(res, filter.yield_basis);
 }
 
 async function refreshAll(resetPage = true) {
+  const my = ++seq.all;
   if (resetPage) state.page = 1;
   let error = "";
   try {
     const filter = readFilter();
     const [summary] = await Promise.all([api("/api/query/summary", {body: {filter}}), loadRows(), loadTab()]);
-    renderKpis(summary);
+    if (my !== seq.all) return;                  // a newer refresh owns the screen now
+    renderKpis(summary, filter.yield_basis);
   } catch (e) { error = e.message; }
+  if (my !== seq.all) return;
   // a fresh query error wins; otherwise keep showing the sticky load error / empty-database hint
   showError(error || state.loadError || (state.emptyDb ? EMPTY_DB_HINT : ""));
 }
@@ -225,12 +260,18 @@ async function loadMeta() {
   const m = await api("/api/meta");
   const upd = m.last_update_utc ? new Date(m.last_update_utc).toLocaleString("sr-RS") : "nikad";
   $("meta").textContent = `Podaci: ${m.first_trade_date || "–"} → ${m.last_trade_date || "–"} · ${fmt(m.rows)} redova · poslednje ažuriranje: ${upd} · v${m.version}`;
-  $("foot-range").textContent = `verzija ${m.version}`;
+  const attempt = m.last_attempt_utc && m.last_attempt_utc !== m.last_update_utc
+    ? ` (poslednji pokušaj: ${new Date(m.last_attempt_utc).toLocaleString("sr-RS")})` : "";
+  $("foot-range").textContent = `Poslednje ažuriranje: ${upd}${attempt} · Podaci: ${m.first_trade_date || "–"} → ${m.last_trade_date || "–"} · verzija ${m.version}`;
   state.emptyDb = !m.rows;
 }
 
 async function loadIsins() {
   const sel = await api("/api/securities");
+  // keep whatever the user has ticked while the list is rebuilt (e.g. after an update)
+  const ticked = [...document.querySelectorAll("input[name=currency]:checked")].map((i) => i.value);
+  state.currencies = [...new Set(sel.map((s) => s.currency))].sort();
+  renderCurrencies(state.currencies, ticked);
   $("isin").innerHTML = sel.map((s) => `<option value="${esc(s.isin)}">${esc(s.isin)} · ${esc(s.currency)} · ${fmt(s.coupon_pct, 2)}% · ${esc(s.maturity_date)}</option>`).join("");
 }
 
@@ -273,9 +314,8 @@ async function doExport(format) {
 }
 
 /* ---------- wiring ---------- */
-document.querySelectorAll("#filters input, #filters select").forEach((el) => {
-  if (el.id !== "saved") el.addEventListener("input", debounced);
-});
+// delegated, so the dynamically built currency checkboxes are covered too
+$("filters").addEventListener("input", (ev) => { if (ev.target.id !== "saved") debounced(); });
 $("btn-reset").onclick = () => { resetForm(); refreshAll(); };
 $("btn-update").onclick = runUpdate;
 $("btn-csv").onclick = () => doExport("csv");
@@ -303,8 +343,10 @@ $("exsort").onchange = () => {
   loadTab().catch((e) => showError(e.message));
 };
 $("btn-save").onclick = async () => {
-  const name = window.prompt("Naziv upita:");
-  if (!name) return;
+  const raw = window.prompt("Naziv upita:");
+  if (raw === null) return;                      // cancelled
+  const name = raw.trim();
+  if (!name) { showError("Naziv upita ne sme biti prazan."); return; }
   try { await api("/api/saved-queries", {method: "PUT", body: {name, filter: readFilter()}}); await loadSaved(); $("saved").value = name; }
   catch (e) { showError(e.message); }
 };
@@ -315,6 +357,11 @@ $("btn-delete").onclick = async () => {
   try { await api("/api/saved-queries/" + encodeURIComponent(name), {method: "DELETE"}); await loadSaved(); }
   catch (e) { showError(e.message); }
 };
+
+// keep-alive: lets the process end after the browser tab is closed (only acted on in browser-fallback mode)
+const beat = () => fetch("/api/heartbeat", {method: "POST"}).catch(() => {});
+beat();
+setInterval(beat, 10000);
 
 (async function init() {
   try { await Promise.all([loadMeta(), loadIsins(), loadSaved()]); } catch (e) { state.loadError = e.message; }

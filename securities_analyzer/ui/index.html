@@ -64,10 +64,15 @@
     <label>do <input type="number" step="any" data-part="max"></label>
   </fieldset>
 
+  <fieldset class="range" data-range="settlement_lag_days">
+    <legend>Valutanje (dani)</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+  </fieldset>
+
   <fieldset>
     <legend>Valuta</legend>
-    <label class="chk"><input type="checkbox" name="currency" value="RSD"> RSD</label>
-    <label class="chk"><input type="checkbox" name="currency" value="EUR"> EUR</label>
+    <div id="currency-list"></div>
   </fieldset>
 
   <fieldset>
@@ -90,6 +95,7 @@
 </aside>
 
 <main>
+  <div id="kpi-head" class="muted"></div>
   <section id="kpis" aria-live="polite"></section>
 
   <nav id="tabs">
