@@ -35,7 +35,7 @@ def download_year(year: int, *, base_url: str = NBS_URL, retries: int = 3,
             if resp.status_code < 500:
                 raise DownloadError(f"HTTP {resp.status_code} za {year}. godinu")
             last = DownloadError(f"HTTP {resp.status_code} za {year}. godinu")
-        except httpx.TransportError as e:
+        except httpx.RequestError as e:
             last = DownloadError(f"Mrežna greška za {year}. godinu: {e}")
         if attempt < retries - 1:
             time.sleep(backoff * (2 ** attempt))

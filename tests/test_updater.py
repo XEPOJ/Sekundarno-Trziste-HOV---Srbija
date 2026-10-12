@@ -99,6 +99,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(500); self.end_headers(); return
         if mode == "404":
             self.send_response(404); self.end_headers(); return
+        if mode == "loop":
+            self.send_response(302)
+            self.send_header("Location", self.path)
+            self.end_headers()
+            return
         body = rows_to_csv(year_rows(int(q["Year"][0])))
         self.send_response(200)
         self.send_header("Content-Type", "text/csv")
@@ -151,3 +156,11 @@ def test_download_year_connection_refused():
     s.close()
     with pytest.raises(DownloadError):
         download_year(2023, base_url=f"http://127.0.0.1:{port}/Download", retries=2, backoff=0, timeout=2)
+
+
+def test_download_year_redirect_loop_becomes_download_error(fake_nbs):
+    url, h = fake_nbs
+    h.mode = "loop"
+    with pytest.raises(DownloadError):
+        download_year(2023, base_url=url, retries=1, backoff=0)
+
