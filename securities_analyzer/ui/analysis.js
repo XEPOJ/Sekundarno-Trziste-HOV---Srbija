@@ -7,8 +7,17 @@ const Analysis = (function () {
     catalog: null, dim1: "isin", dim2: "", measures: ["turnover"], sortBy: "turnover", order: "desc",
     limit: 25, chart: {type: "bar", horizontal: true},
     sortTouched: false, limitTouched: false, horizontalTouched: false,
-    seq: 0, last: null, timer: null, active: false,
+    seq: 0, last: null, timer: null, active: false, ownsBanner: false,
   };
+
+  // The shared error banner also carries app.js's sticky load error / empty-database hint, so Analiza
+  // clears it only when it was Analiza that put the current message there.
+  function setError(msg) { App.showError(msg); state.ownsBanner = !!msg; }
+  function clearOwnError() { if (state.ownsBanner) { App.showError(""); state.ownsBanner = false; } }
+
+  const NO_MEASURE_HINT = "Izaberi bar jednu meru.";
+  const truncationText = (res) => (res.truncated_currencies.length
+    ? `Prikazano prvih ${App.fmt(state.limit)} po valuti; ima još redova za: ${res.truncated_currencies.join(", ")}.` : "");
 
   const dimIds = () => [state.dim1, state.dim2].filter(Boolean);
   const kindOf = (id) => ((state.catalog.dimensions.find((d) => d.id === id) || {}).kind);
@@ -57,6 +66,7 @@ const Analysis = (function () {
     renderSortOptions();
     $("b-order").value = state.order;
     $("b-limit").value = state.limit;
+    $("a-csv").disabled = $("a-xlsx").disabled = !state.measures.length;
   }
 
   function updateMeasureLimits() {
@@ -101,27 +111,38 @@ const Analysis = (function () {
   function drawNotice(res) {
     const parts = [];
     if (!res.rows.length) parts.push("Nema rezultata za izabrane filtere.");
-    if (res.truncated_currencies.length) parts.push(`Prikazano prvih ${App.fmt(state.limit)} po valuti; ima još redova za: ${res.truncated_currencies.join(", ")}.`);
+    if (res.truncated_currencies.length) parts.push(truncationText(res));
     $("a-notice").textContent = parts.join(" ");
   }
 
   async function refresh() {
     if (!state.active || !state.catalog) return;
     const token = ++state.seq;
-    const hint = PivotChart.chartHint(state.chart.type, dimIds().length, state.measures.length);
+    const noMeasures = !state.measures.length;
+    const hint = noMeasures ? {ok: false, note: NO_MEASURE_HINT}
+      : PivotChart.chartHint(state.chart.type, dimIds().length, state.measures.length);
     $("b-hint").textContent = hint.note || "";
     $("b-hint").classList.toggle("warn", !hint.ok);
-    if (!state.measures.length) { $("a-chart").hidden = true; $("a-rows").innerHTML = ""; return; }
+    if (noMeasures) {
+      // nothing to query: drop the stale result so the screen does not show data that no longer matches
+      state.last = null;
+      $("a-chart").hidden = true;
+      if (window.Plotly) Plotly.purge("a-chart");
+      $("a-rows").innerHTML = "";
+      $("a-table-title").textContent = "Rezultat";
+      $("a-notice").textContent = NO_MEASURE_HINT;
+      return;
+    }
     try {
       const res = await App.api("/api/query/pivot", {body: query()});
       if (token !== state.seq) return;
       state.last = res;
-      App.showError("");
+      clearOwnError();
       drawChart(res, hint);
       drawTable(res);
       drawNotice(res);
     } catch (e) {
-      if (token === state.seq) App.showError(e.message);
+      if (token === state.seq) setError(e.message);
     }
   }
 
@@ -129,9 +150,11 @@ const Analysis = (function () {
     if (!state.measures.length) return;
     try {
       const r = await App.api("/api/export/pivot", {body: {...query(), format}});
-      App.showError("");
-      $("a-notice").textContent = `Sačuvano (${App.fmt(r.rows)} redova): ${r.path}`;
-    } catch (e) { App.showError(e.message); }
+      clearOwnError();
+      // the export is cut by the same per-currency limit as the screen: say so, never silently
+      const cut = r.truncated_currencies && r.truncated_currencies.length ? truncationText(r) : "";
+      $("a-notice").textContent = [`Sačuvano (${App.fmt(r.rows)} redova): ${r.path}`, cut].filter(Boolean).join(" ");
+    } catch (e) { setError(e.message); }
   }
 
   function getConfig() {
@@ -154,7 +177,7 @@ const Analysis = (function () {
     state.chart = {type: (cfg.chart && cfg.chart.type) || "bar", horizontal: !!(cfg.chart && cfg.chart.horizontal)};
     state.sortTouched = state.limitTouched = state.horizontalTouched = true;
     syncControls();
-    schedule();
+    // no refresh here: the caller activates the view (setActive(true) refreshes once)
   }
 
   function fillSelects() {
@@ -197,7 +220,12 @@ const Analysis = (function () {
 
   function setActive(flag) {
     state.active = !!flag;
-    if (state.active) refresh();
+    if (state.active) { refresh(); return; }
+    // leaving Analiza: invalidate in-flight requests and pending redraws so a late response cannot
+    // touch the banner or the DOM while Pregled is showing (app.js re-renders the banner itself)
+    state.seq++;
+    clearTimeout(state.timer);
+    state.ownsBanner = false;
   }
 
   return {init, setActive, getConfig, setConfig, onFilterChange: schedule};

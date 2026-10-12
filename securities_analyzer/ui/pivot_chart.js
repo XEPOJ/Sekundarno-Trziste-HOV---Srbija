@@ -68,7 +68,19 @@
             y: 1 - r / nRows, xanchor: "center", yanchor: "bottom", font: {size: 12}};
   }
 
-  const gridOf = (rows, columns) => ({rows, columns, pattern: "independent", xgap: 0.12, ygap: 0.35});
+  const gridOf = (rows, columns, xgap = 0.12) => ({rows, columns, pattern: "independent", xgap, ygap: 0.35});
+
+  // Horizontal bars put long category labels to the left of every panel; Plotly's automargin does not
+  // reserve room for them between subplots, so the grid gap must. xgap is a fraction of one cell's
+  // width: solve gap_px = xgap * cell_w for a ~1000 px wide plot and ~6.5 px per label character.
+  function horizontalGap(nCols, labels) {
+    if (nCols < 2) return 0.12;
+    const chars = Math.min(Math.max(0, ...labels.map((l) => String(l).length)), 40);
+    const gapPx = chars * 6.5;
+    const room = 1000 - (nCols - 1) * gapPx;
+    const gap = room > 0 ? (gapPx * nCols) / room : 0.8;
+    return Math.round(Math.min(Math.max(gap, 0.33), 0.8) * 100) / 100;
+  }
 
   function barLine(result, config, h, currencies) {
     const groups = groupLabels(result, h.labelFor);
@@ -80,7 +92,8 @@
     const horizontal = !!config.horizontal && !isLine;
     const data = [];
     const annotations = [];
-    const layout = {grid: gridOf(nRows, nCols), annotations, barmode: "group", showlegend: twoDims};
+    const xgap = horizontal ? horizontalGap(nCols, [...groups[0].labels.values()]) : 0.12;
+    const layout = {grid: gridOf(nRows, nCols, xgap), annotations, barmode: "group", showlegend: twoDims};
     const seen = new Set();
     measureIdx.forEach((mi, r) => {
       const measure = result.measures[mi];

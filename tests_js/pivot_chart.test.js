@@ -90,6 +90,23 @@ test("horizontal bars swap axes and put the first category on top", () => {
   assert.equal(fig.layout.xaxis.title.text, "Promet");
 });
 
+test("horizontal multi-currency bars get a wide panel gap, everything else keeps 0.12", () => {
+  const longLabel = (id, v) => `${v} · 5,00% · 2030 · long label`;
+  const horiz = PC.buildFigure(oneMeasure, {type: "bar", horizontal: true}, {colorFor, labelFor: longLabel});
+  assert.ok(horiz.layout.grid.xgap >= 0.33 && horiz.layout.grid.xgap <= 0.8, String(horiz.layout.grid.xgap));
+  // longer labels never shrink the gap
+  const short = PC.buildFigure(oneMeasure, {type: "bar", horizontal: true}, {colorFor});
+  assert.ok(horiz.layout.grid.xgap >= short.layout.grid.xgap);
+  assert.ok(short.layout.grid.xgap >= 0.33);
+  const vert = PC.buildFigure(oneMeasure, {type: "bar", horizontal: false}, {colorFor, labelFor: longLabel});
+  assert.equal(vert.layout.grid.xgap, 0.12);
+  const line = PC.buildFigure(oneMeasure, {type: "line", horizontal: true}, {colorFor, labelFor: longLabel});
+  assert.equal(line.layout.grid.xgap, 0.12);
+  const oneCur = {...oneMeasure, rows: oneMeasure.rows.filter((r) => r.currency === "RSD")};
+  const single = PC.buildFigure(oneCur, {type: "bar", horizontal: true}, {colorFor, labelFor: longLabel});
+  assert.equal(single.layout.grid.xgap, 0.12);
+});
+
 test("several measures with one dimension get one row of panels per measure", () => {
   const fig = PC.buildFigure(oneDim, {type: "bar", horizontal: false}, {colorFor});
   assert.equal(fig.layout.grid.rows, 2);
