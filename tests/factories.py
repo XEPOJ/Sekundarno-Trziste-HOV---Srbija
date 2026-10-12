@@ -1,5 +1,6 @@
 from datetime import date
 
+from securities_analyzer.db.repo import replace_year
 from securities_analyzer.ingest.models import EXPECTED_HEADER, TradeRow
 
 
@@ -35,3 +36,12 @@ def rows_to_csv(rows) -> bytes:
             f"{r.max_yield_pct:.2f}", f"{r.avg_yield_pct:.2f}",
         ]))
     return ("\ufeff" + "\n".join(lines) + "\n").encode("utf-8")
+
+
+def load_rows(conn, rows):
+    """Insert rows grouped by settlement year (mirrors NBS yearly files)."""
+    by_year: dict[int, list] = {}
+    for r in rows:
+        by_year.setdefault(r.settlement_date.year, []).append(r)
+    for year, rs in by_year.items():
+        replace_year(conn, year, rs)
