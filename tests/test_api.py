@@ -25,7 +25,7 @@ def client(db_path, tmp_path):
         [make_row(trade_date=date(y, 6, 10), settlement_date=date(y, 6, 10), isin=i)
          for i in ("RSMFRSD0000Y", "RSMFRSD0000Z")]),
         export_dir=tmp_path / "exports")
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
 def test_meta(client):
@@ -126,3 +126,41 @@ def test_update_flow(client):
     assert any("Preuzimam" in m for m in st["messages"])
     assert client.get("/api/meta").json()["rows"] > 3
     assert client.get("/api/meta").json()["last_update_utc"]
+
+
+def test_meta_has_last_attempt_key(client):
+    j = client.get("/api/meta").json()
+    assert "last_attempt_utc" in j and j["last_attempt_utc"] is None
+
+
+def test_untrusted_host_is_rejected(client):
+    assert client.get("/api/meta", headers={"Host": "evil.example"}).status_code == 400
+    assert client.get("/api/meta", headers={"Host": "localhost:8123"}).status_code == 200
+
+
+def test_heartbeat_records_time(client):
+    assert client.app.state.last_heartbeat is None
+    assert client.post("/api/heartbeat").json() == {"ok": True}
+    assert isinstance(client.app.state.last_heartbeat, float)
+
+
+def test_page_upper_bound_is_422(client):
+    assert client.post("/api/query/rows", json={"page": 1_000_001}).status_code == 422
+    assert client.post("/api/query/rows", json={"page": 1_000_000}).status_code == 200
+
+
+def test_filter_list_lengths_are_bounded(client):
+    ok = {"filter": {"currency": ["RSD"] * 50, "isin": ["RSMFRSD0000A"] * 500}}
+    assert client.post("/api/query/rows", json=ok).status_code == 200
+    assert client.post("/api/query/rows", json={"filter": {"currency": ["RSD"] * 51}}).status_code == 422
+    assert client.post("/api/query/rows", json={"filter": {"isin": ["RSMFRSD0000A"] * 501}}).status_code == 422
+
+
+@pytest.mark.parametrize("name", ["", "   ", ".", " .. ", "a\x00b", "a\nb", "\t"])
+def test_saved_query_bad_names_are_422(client, name):
+    assert client.put("/api/saved-queries", json={"name": name, "filter": {}}).status_code == 422
+
+
+def test_saved_query_name_is_stripped(client):
+    assert client.put("/api/saved-queries", json={"name": "  Moj  ", "filter": {}}).json() == {"saved": "Moj"}
+    assert client.get("/api/saved-queries").json()[0]["name"] == "Moj"

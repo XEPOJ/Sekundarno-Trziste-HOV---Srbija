@@ -34,8 +34,8 @@ class FilterSpec(BaseModel):
     coupon_pct: Range = Field(default_factory=Range)
     settlement_lag_days: Range = Field(default_factory=Range)
     turnover_min: float | None = None
-    currency: list[str] = Field(default_factory=list)
-    isin: list[str] = Field(default_factory=list)
+    currency: list[str] = Field(default_factory=list, max_length=50)
+    isin: list[str] = Field(default_factory=list, max_length=500)
 
     @field_validator("currency")
     @classmethod

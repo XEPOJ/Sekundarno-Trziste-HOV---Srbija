@@ -1,5 +1,7 @@
 import csv
 import json
+import time
+import unicodedata
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -7,7 +9,8 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .. import __version__
 from ..db.repo import data_range, get_meta
@@ -27,7 +30,7 @@ class QueryBody(BaseModel):
 class RowsBody(QueryBody):
     sort: str = "trade_date"
     order: Literal["asc", "desc"] = "desc"
-    page: int = Field(1, ge=1)
+    page: int = Field(1, ge=1, le=1_000_000)
     page_size: int = Field(100, ge=1, le=1000)
 
 
@@ -49,9 +52,26 @@ class SaveBody(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     filter: FilterSpec
 
+    @field_validator("name")
+    @classmethod
+    def _clean_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v or v in (".", ".."):
+            raise ValueError("neispravan naziv upita")
+        if any(unicodedata.category(ch) == "Cc" for ch in v):
+            raise ValueError("naziv sadrži kontrolne karaktere")
+        return v
 
-def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = None) -> FastAPI:
+
+ALLOWED_HOSTS = ("127.0.0.1", "localhost")
+
+
+def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = None,
+               allowed_hosts: tuple[str, ...] = ALLOWED_HOSTS) -> FastAPI:
     app = FastAPI(title="Securities Analyzer", version=__version__)
+    # Defends the localhost server against DNS-rebinding: only loopback Host headers are served.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
+    app.state.last_heartbeat = None          # time.monotonic() of the last UI heartbeat
     export_dir = export_dir or (Path.home() / "Downloads")
 
     def get_conn():
@@ -81,8 +101,14 @@ def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = 
             "version": __version__, "rows": count,
             "first_trade_date": first, "last_trade_date": last,
             "last_update_utc": get_meta(conn, "last_update_utc"),
+            "last_attempt_utc": get_meta(conn, "last_attempt_utc"),
             "last_update_result": json.loads(raw) if raw else None,
         }
+
+    @app.post("/api/heartbeat")
+    def heartbeat():
+        app.state.last_heartbeat = time.monotonic()
+        return {"ok": True}
 
     @app.get("/api/securities")
     def securities(conn=Depends(get_conn)):
