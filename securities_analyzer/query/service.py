@@ -1,6 +1,9 @@
 import sqlite3
 
 from .builder import build_where
+from .expressions import BUCKET_NAMES as _BUCKET_NAMES
+from .expressions import BUCKET_ORDER_SQL as _BUCKET_CASE
+from .expressions import PERIOD_SQL as _PERIOD
 from .filters import FilterSpec
 
 ROW_COLUMNS = (
@@ -9,18 +12,6 @@ ROW_COLUMNS = (
     "min_yield_pct", "max_yield_pct", "avg_yield_pct", "turnover", "quality_flag",
 )
 SORTABLE = frozenset(ROW_COLUMNS)
-
-_PERIOD = {
-    "day": "trade_date",
-    "week": "date(trade_date, 'weekday 0', '-6 days')",   # Monday of the week
-    "month": "strftime('%Y-%m-01', trade_date)",
-}
-
-_BUCKET_CASE = (
-    "CASE WHEN remaining_maturity_days <= 365 THEN 1 WHEN remaining_maturity_days <= 1095 THEN 2 "
-    "WHEN remaining_maturity_days <= 1825 THEN 3 WHEN remaining_maturity_days <= 3650 THEN 4 ELSE 5 END"
-)
-_BUCKET_NAMES = {1: "0-1Y", 2: "1-3Y", 3: "3-5Y", 4: "5-10Y", 5: "10Y+"}
 
 _EXTREME_SORT = frozenset({"trade_date", "highest_pct", "lowest_pct", "range_pct"})
 
