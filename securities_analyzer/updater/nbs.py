@@ -15,6 +15,7 @@ from ..ingest.parser import IngestError, parse_csv
 NBS_URL = ("https://webappcenter.nbs.rs/WebApp/Securities/"
            "GovermentSecuritySecondaryTrade/Download")
 FIRST_YEAR = 2020
+_NO_DATA_YET = "Još nema podataka za tekuću godinu"
 _MIN_SHARE = 0.5     # a refreshed year must keep at least this share of the stored rows
 
 
@@ -80,9 +81,14 @@ def refresh(conn, *, today: date | None = None, fetch: Callable[[int], bytes] = 
         say(f"Preuzimam {y}. godinu…")
         try:
             rows = parse_csv(fetch(y))
-            if not rows:
-                raise IngestError("Fajl nema nijedan red")
             stored = stored_count(conn, y)
+            if not rows:
+                if y == today.year and stored == 0:
+                    # e.g. early January: NBS has published the new year's file but no trades yet
+                    report.years.append(YearReport(y, "ok", message=_NO_DATA_YET))
+                    say(f"{y}: {_NO_DATA_YET}")
+                    continue
+                raise IngestError("Fajl nema nijedan red")
             if stored and len(rows) < stored * _MIN_SHARE:
                 raise IngestError(
                     f"Novi fajl ima {len(rows)} redova, a baza {stored}: sumnjivo skraćen fajl")
@@ -93,6 +99,9 @@ def refresh(conn, *, today: date | None = None, fetch: Callable[[int], bytes] = 
             report.years.append(YearReport(y, "error", message=str(e)))
             say(f"{y}: GREŠKA — {e}")
     report.data_end = data_range(conn)[1]
-    set_meta(conn, "last_update_utc", datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    set_meta(conn, "last_attempt_utc", now)
+    if any(y.status == "ok" for y in report.years):      # last_update_utc means last SUCCESS
+        set_meta(conn, "last_update_utc", now)
     set_meta(conn, "last_update_result", json.dumps(report.to_dict()))
     return report

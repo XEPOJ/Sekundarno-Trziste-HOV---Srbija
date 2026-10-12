@@ -73,8 +73,8 @@ def test_refresh_rejects_suspiciously_truncated_file(conn):
 
 
 def test_refresh_empty_file_is_an_error(conn):
-    rep = refresh(conn, today=date(2020, 5, 1), fetch=lambda y: rows_to_csv([]))
-    assert not rep.ok and "nijedan red" in rep.years[0].message
+    rep = refresh(conn, today=date(2021, 5, 1), fetch=lambda y: rows_to_csv([]))
+    assert not rep.ok and "nijedan red" in rep.years[0].message   # 2020 is a past year
 
 
 def test_refresh_one_bad_year_does_not_block_others(conn):
@@ -84,6 +84,72 @@ def test_refresh_one_bad_year_does_not_block_others(conn):
         return rows_to_csv(year_rows(y))
     rep = refresh(conn, today=date(2022, 3, 1), fetch=fetch)
     assert [y.status for y in rep.years] == ["ok", "error", "ok"]
+
+
+def test_failed_refresh_keeps_last_success_but_records_attempt(conn):
+    def fail(y): raise DownloadError("offline")
+    rep = refresh(conn, today=date(2021, 5, 1), fetch=fail)
+    assert not rep.ok
+    assert get_meta(conn, "last_update_utc") is None
+    assert get_meta(conn, "last_attempt_utc")
+    assert json.loads(get_meta(conn, "last_update_result"))["ok"] is False
+    # a later success sets last_update_utc; a later failure leaves it untouched
+    refresh(conn, today=date(2021, 5, 1), fetch=lambda y: rows_to_csv(year_rows(y)))
+    ok_at = get_meta(conn, "last_update_utc")
+    assert ok_at
+    refresh(conn, today=date(2021, 5, 1), fetch=fail)
+    assert get_meta(conn, "last_update_utc") == ok_at
+
+
+def test_partial_success_counts_as_last_update(conn):
+    def fetch(y):
+        if y == 2021:
+            raise DownloadError("HTTP 500")
+        return rows_to_csv(year_rows(y))
+    refresh(conn, today=date(2022, 3, 1), fetch=fetch)
+    assert get_meta(conn, "last_update_utc")
+
+
+def test_refresh_empty_current_year_in_january_is_not_an_error(conn):
+    replace_year(conn, 2025, year_rows(2025))
+    def fetch(y):
+        return rows_to_csv(year_rows(y) if y == 2025 else [])
+    rep = refresh(conn, today=date(2026, 1, 5), fetch=fetch)
+    cur = [y for y in rep.years if y.year == 2026][0]
+    assert cur.status == "ok" and cur.added == 0
+    assert cur.message == "Još nema podataka za tekuću godinu"
+    assert rep.ok
+
+
+def test_refresh_empty_current_year_with_stored_rows_is_an_error(conn):
+    replace_year(conn, 2026, year_rows(2026))
+    rep = refresh(conn, today=date(2026, 1, 5), fetch=lambda y: rows_to_csv([]))
+    cur = [y for y in rep.years if y.year == 2026][0]
+    assert cur.status == "error" and "nijedan red" in cur.message
+    assert stored_count(conn, 2026) == 2
+
+
+def test_refresh_empty_past_year_is_still_an_error_even_if_nothing_stored(conn):
+    rep = refresh(conn, today=date(2026, 1, 5), fetch=lambda y: rows_to_csv([]))
+    assert [y.status for y in rep.years if y.year < 2026] == ["error"] * 6
+    assert not rep.ok
+
+
+def test_refresh_key_collision_with_other_year_is_reported_and_isolated(conn):
+    stolen = make_row(trade_date=date(2021, 12, 30), settlement_date=date(2021, 12, 30),
+                      isin="RSMFRSD00099")
+    replace_year(conn, 2021, [stolen] + year_rows(2021))
+    before = stored_count(conn, 2021)
+    def fetch(y):
+        if y == 2022:                      # 2022 file contains a key stored under 2021
+            return rows_to_csv(year_rows(y) + [stolen])
+        return rows_to_csv(year_rows(y) + ([stolen] if y == 2021 else []))
+    rep = refresh(conn, today=date(2023, 3, 1), fetch=fetch)
+    by = {y.year: y for y in rep.years}
+    assert by[2022].status == "error" and "Kolizija" in by[2022].message
+    assert stored_count(conn, 2022) == 0 and stored_count(conn, 2021) == before
+    assert by[2021].status == "ok" and by[2023].status == "ok"
+    assert stored_count(conn, 2023) == 2
 
 
 # ---------- real HTTP layer against a local fake server ----------
