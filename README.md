@@ -30,5 +30,6 @@ The `httpx2` dev dependency exists because Starlette's TestClient prefers it.
 
 ## Notes
 - Source: Narodna banka Srbije (webappcenter.nbs.rs). Check NBS terms of use before redistributing data.
+- License: the code is MIT-licensed (see `LICENSE`). The data is not covered by it; it belongs to NBS. The bundled Plotly.js (`ui/vendor/plotly.min.js`) is MIT-licensed by Plotly, Inc. (notice kept in the file).
 - Each row is a *daily aggregate* per ISIN, not a single trade. Totals and weighted yields are always shown per currency.
 - Plotly's PNG button may not save inside the app window; it works when the app falls back to the browser.

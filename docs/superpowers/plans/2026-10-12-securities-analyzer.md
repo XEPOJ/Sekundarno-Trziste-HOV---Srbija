@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Python **3.13**; Windows is the only supported platform for v1.
-- Repo root is `securities-analyzer/`, created inside `C:\Users\Zoran\Documents\Codex\2026-08-19\referenced-chatgpt-conversation-this-is-an\`. **All paths in this plan are relative to that repo root.**
+- Repo root is `securities-analyzer/`, created inside a parent working folder. **All paths in this plan are relative to that repo root.**
 - Everything runs locally. No server, accounts, cloud or telemetry. Server binds to `127.0.0.1` only.
 - Business key of a row is `(trade_date, settlement_date, isin)` and is unique across the whole table. The year in a file name is only a *refresh unit* stored as `source_year`.
 - Yields are percentage points (`5.14` = 5.14%). Dates are stored as ISO `YYYY-MM-DD` text.
@@ -92,7 +92,7 @@ securities-analyzer/
 - [ ] **Step 1: Create the repo and project files**
 
 ```powershell
-cd C:\Users\Zoran\Documents\Codex\2026-08-19\referenced-chatgpt-conversation-this-is-an
+cd <parent working folder>
 mkdir securities-analyzer
 cd securities-analyzer
 git init
