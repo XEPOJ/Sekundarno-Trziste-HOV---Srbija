@@ -69,7 +69,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
     _migrate(conn)
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value "
+        # Never downgrade a newer stamp; a non-numeric stored value casts to 0 and is re-stamped.
+        "WHERE CAST(meta.value AS INTEGER) < CAST(excluded.value AS INTEGER)",
         (str(SCHEMA_VERSION),),
     )
     conn.commit()

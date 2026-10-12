@@ -3,7 +3,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
+from securities_analyzer.api.app import create_app
 from securities_analyzer.db.repo import (
     KeyCollisionError, data_range, get_meta, last_source_year, replace_year,
     set_meta, stored_count,
@@ -194,4 +196,110 @@ def test_ensure_user_db_migrates_existing_v1_database(tmp_path):
     c = connect(path)
     assert get_meta(c, "schema_version") == "2"
     assert "pivot_json" in [r[1] for r in c.execute("PRAGMA table_info(saved_queries)")]
+    c.close()
+
+
+# Verbatim v1 schema (tag build/v0.1): saved_queries has no pivot_json column.
+V1_SCHEMA = """
+CREATE TABLE IF NOT EXISTS trades (
+  id INTEGER PRIMARY KEY,
+  trade_date TEXT NOT NULL,
+  settlement_date TEXT NOT NULL,
+  maturity_date TEXT NOT NULL,
+  isin TEXT NOT NULL,
+  original_maturity_days INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  coupon_pct REAL NOT NULL,
+  remaining_maturity_days INTEGER NOT NULL,
+  quantity INTEGER NOT NULL,
+  transaction_count INTEGER NOT NULL,
+  nominal_per_unit REAL NOT NULL,
+  min_price REAL NOT NULL,
+  max_price REAL NOT NULL,
+  wavg_price REAL NOT NULL,
+  turnover REAL NOT NULL,
+  min_yield_pct REAL NOT NULL,
+  max_yield_pct REAL NOT NULL,
+  avg_yield_pct REAL NOT NULL,
+  source_year INTEGER NOT NULL,
+  settlement_lag_days INTEGER NOT NULL,
+  quality_flag TEXT NOT NULL,
+  UNIQUE (trade_date, settlement_date, isin)
+);
+CREATE INDEX IF NOT EXISTS ix_trades_trade_date ON trades (trade_date);
+CREATE INDEX IF NOT EXISTS ix_trades_isin ON trades (isin);
+CREATE INDEX IF NOT EXISTS ix_trades_remaining ON trades (remaining_maturity_days);
+CREATE INDEX IF NOT EXISTS ix_trades_avg_yield ON trades (avg_yield_pct);
+CREATE INDEX IF NOT EXISTS ix_trades_source_year ON trades (source_year);
+
+CREATE VIEW IF NOT EXISTS securities AS
+SELECT isin,
+       MAX(maturity_date) AS maturity_date,
+       MAX(currency) AS currency,
+       MAX(coupon_pct) AS coupon_pct,
+       MAX(nominal_per_unit) AS nominal_per_unit,
+       MAX(original_maturity_days) AS original_maturity_days,
+       MIN(trade_date) AS first_trade,
+       MAX(trade_date) AS last_trade,
+       COUNT(*) AS trade_rows
+FROM trades GROUP BY isin;
+
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS saved_queries (name TEXT PRIMARY KEY, filter_json TEXT NOT NULL);
+"""
+
+
+def test_populated_v1_database_migrates_and_serves_saved_queries(tmp_path):
+    path = tmp_path / "data.db"
+    raw = sqlite3.connect(path)
+    raw.executescript(V1_SCHEMA)
+    raw.execute("INSERT INTO meta VALUES ('schema_version', '1')")
+    for isin in ("RSMFRSD00001", "RSMFRSD00002"):
+        raw.execute(
+            "INSERT INTO trades (trade_date, settlement_date, maturity_date, isin, original_maturity_days,"
+            " currency, coupon_pct, remaining_maturity_days, quantity, transaction_count, nominal_per_unit,"
+            " min_price, max_price, wavg_price, turnover, min_yield_pct, max_yield_pct, avg_yield_pct,"
+            " source_year, settlement_lag_days, quality_flag)"
+            " VALUES ('2023-06-15', '2023-06-15', '2030-07-30', ?, 2556, 'RSD', 5.0, 2600, 100, 1, 10000.0,"
+            " 10000.0, 10000.0, 10000.0, 1000000.0, 5.0, 5.0, 5.0, 2023, 0, 'OK')", (isin,))
+    raw.execute("INSERT INTO saved_queries VALUES ('stari', '{\"currency\": [\"RSD\"]}')")
+    raw.commit()
+    raw.close()
+
+    ensure_user_db(path, None)
+    ensure_user_db(path, None)                       # idempotent
+
+    c = connect(path)
+    assert c.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == 2
+    row = c.execute("SELECT name, filter_json, pivot_json FROM saved_queries").fetchone()
+    assert row["name"] == "stari" and row["pivot_json"] is None
+    assert get_meta(c, "schema_version") == "2"
+    c.close()
+
+    api = TestClient(create_app(path), base_url="http://127.0.0.1")
+    items = api.get("/api/saved-queries").json()
+    assert items == [{"name": "stari", "filter": {"currency": ["RSD"]}, "pivot": None}]
+
+
+def test_schema_version_stamp_never_downgrades(tmp_path):
+    path = tmp_path / "future.db"
+    c = connect(path)
+    init_schema(c)
+    set_meta(c, "schema_version", "99")
+    init_schema(c)
+    assert get_meta(c, "schema_version") == "99"
+    set_meta(c, "schema_version", "garbage")        # non-numeric is treated as stale and re-stamped
+    init_schema(c)
+    assert get_meta(c, "schema_version") == "2"
+    c.close()
+
+    v1 = tmp_path / "v1.db"
+    raw = sqlite3.connect(v1)
+    raw.executescript(V1_SCHEMA)
+    raw.execute("INSERT INTO meta VALUES ('schema_version', '1')")
+    raw.commit()
+    raw.close()
+    c = connect(v1)
+    init_schema(c)
+    assert get_meta(c, "schema_version") == "2"
     c.close()
