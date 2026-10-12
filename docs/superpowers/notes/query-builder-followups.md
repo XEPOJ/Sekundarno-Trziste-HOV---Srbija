@@ -36,6 +36,10 @@ State at close: `main` = v0.1 + Analiza (fast-forward merge), 208 pytest + 31 No
 - Accessibility: `#b-order` has no accessible name; mode buttons lack `aria-pressed`; `#a-notice` lacks `aria-live`; `th { cursor: pointer }` also applies to the non-sortable `#a-rows` header.
 - No unit tests for `analysis.js` (only checked in the browser); consider extracting its pure parts so `node --test` can cover them.
 
+## Known and accepted
+
+- `POST /api/update` has no body, so a web page open in the user's browser can trigger a data update on the local server (it must guess the random loopback port). Impact is limited to downloading public NBS data into the user's own local database; no data can be read or changed. Decided not to add an `Origin` check (2026-10-12). Every other state-changing route takes a JSON body and rejects cross-site simple requests (422); the server only answers loopback `Host` headers (DNS-rebinding guard) and sends no CORS headers.
+
 ## Project-level items still open
 
 - The GitHub workflows (`ci.yml`, `release.yml`) have never run; the YAML was only parsed.
