@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analiza državnih hartija</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>Sekundarno trgovanje državnim hartijama</h1>
+  <div id="meta" class="muted"></div>
+  <button id="btn-update" class="primary">Update base</button>
+</header>
+<div id="update-panel" hidden><pre id="update-log"></pre></div>
+<div id="error" role="alert" hidden></div>
+
+<div class="layout">
+<aside id="filters">
+  <div class="row-actions">
+    <button id="btn-reset">Resetuj</button>
+  </div>
+
+  <fieldset>
+    <legend>Period trgovanja</legend>
+    <label>od <input type="date" id="date_from"></label>
+    <label>do <input type="date" id="date_to"></label>
+  </fieldset>
+
+  <fieldset class="range" data-range="yield_pct">
+    <legend>Prinos (%)</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label class="chk"><input type="checkbox" data-part="min_exclusive"> strogo veće</label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+    <label class="chk"><input type="checkbox" data-part="max_exclusive"> strogo manje</label>
+    <label>osnova
+      <select id="yield_basis">
+        <option value="avg">prosečni prinos</option>
+        <option value="min">minimalni prinos</option>
+        <option value="max">maksimalni prinos</option>
+      </select>
+    </label>
+  </fieldset>
+
+  <fieldset class="range" data-range="remaining_maturity_years">
+    <legend>Preostala ročnost (godine)</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label class="chk"><input type="checkbox" data-part="min_exclusive"> strogo veće</label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+    <label class="chk"><input type="checkbox" data-part="max_exclusive"> strogo manje</label>
+  </fieldset>
+
+  <fieldset class="range" data-range="original_maturity_years">
+    <legend>Originalna ročnost (godine)</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label class="chk"><input type="checkbox" data-part="min_exclusive"> strogo veće</label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+    <label class="chk"><input type="checkbox" data-part="max_exclusive"> strogo manje</label>
+  </fieldset>
+
+  <fieldset class="range" data-range="coupon_pct">
+    <legend>Kupon (%)</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Valuta</legend>
+    <label class="chk"><input type="checkbox" name="currency" value="RSD"> RSD</label>
+    <label class="chk"><input type="checkbox" name="currency" value="EUR"> EUR</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Ostalo</legend>
+    <label>min. promet <input type="number" step="any" id="turnover_min"></label>
+    <label>ISIN
+      <select id="isin" multiple size="6"></select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Sačuvani upiti</legend>
+    <select id="saved"></select>
+    <div class="row-actions">
+      <button id="btn-load">Učitaj</button>
+      <button id="btn-save">Sačuvaj…</button>
+      <button id="btn-delete">Obriši</button>
+    </div>
+  </fieldset>
+</aside>
+
+<main>
+  <section id="kpis" aria-live="polite"></section>
+
+  <nav id="tabs">
+    <button data-tab="time" class="active">Prinos kroz vreme</button>
+    <button data-tab="scatter">Prinos i ročnost</button>
+    <button data-tab="buckets">Promet po rokovima</button>
+    <button data-tab="extremes">Dnevni ekstremi</button>
+  </nav>
+
+  <section id="chart-toolbar">
+    <label id="gran-wrap">Granulacija
+      <select id="gran">
+        <option value="day">dan</option>
+        <option value="week">nedelja</option>
+        <option value="month" selected>mesec</option>
+      </select>
+    </label>
+    <label id="exsort-wrap" hidden>Sortiraj
+      <select id="exsort">
+        <option value="trade_date|desc">po datumu (najnoviji)</option>
+        <option value="highest_pct|desc">najveći prinos</option>
+        <option value="lowest_pct|asc">najmanji prinos</option>
+        <option value="range_pct|desc">najveći raspon</option>
+      </select>
+    </label>
+  </section>
+  <div id="chart"></div>
+  <div id="extremes-table" hidden></div>
+
+  <section id="table-section">
+    <div class="table-bar">
+      <strong id="table-title">Redovi</strong>
+      <span class="spacer"></span>
+      <button id="btn-csv">Izvezi CSV</button>
+      <button id="btn-xlsx">Izvezi XLSX</button>
+    </div>
+    <div class="table-wrap"><table id="rows"></table></div>
+    <div class="pager">
+      <button id="prev">‹</button>
+      <span id="page-info"></span>
+      <button id="next">›</button>
+    </div>
+  </section>
+</main>
+</div>
+
+<footer class="muted">Podaci: Narodna banka Srbije · <span id="foot-range"></span></footer>
+<script src="vendor/plotly.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
