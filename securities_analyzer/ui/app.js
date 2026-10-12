@@ -4,7 +4,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&l
 const fmt = (n, d = 0) => n == null ? "–" : Number(n).toLocaleString("sr-RS", {minimumFractionDigits: d, maximumFractionDigits: d});
 const COLORS = {RSD: "#1f6feb", EUR: "#d9480f"};
 const colorFor = (c) => COLORS[c] || "#6b7280";
-const state = {tab: "time", sort: "trade_date", order: "desc", page: 1, pageSize: 100, total: 0, exSort: "trade_date", exOrder: "desc"};
+const state = {tab: "time", sort: "trade_date", order: "desc", page: 1, pageSize: 100, total: 0, exSort: "trade_date", exOrder: "desc", emptyDb: false, loadError: ""};
 
 async function api(path, {method, body} = {}) {
   const opts = body === undefined && !method ? {} :
@@ -76,7 +76,7 @@ function renderKpis(summary) {
       <h3>${esc(k.currency)}</h3>
       <div class="kpi-grid">
         <div><span>Promet (${esc(k.currency)})</span><b>${fmt(k.turnover)}</b></div>
-        <div><span>Ponderisani prinos</span><b>${fmt(k.weighted_yield_pct, 2)}%</b></div>
+        <div><span>Ponderisani prinos</span><b>${k.weighted_yield_pct == null ? "–" : fmt(k.weighted_yield_pct, 2) + "%"}</b></div>
         <div><span>Količina</span><b>${fmt(k.quantity)}</b></div>
         <div><span>Transakcija</span><b>${fmt(k.transactions)}</b></div>
         <div><span>Hartija</span><b>${fmt(k.isins)}</b></div>
@@ -134,13 +134,16 @@ function drawTime(rows) {
 
 function drawScatter(rows) {
   if (!rows.length) return emptyChart("Nema podataka");
-  const maxT = Math.max(...rows.map((r) => r.turnover));
-  const traces = Object.entries(groupBy(rows, "currency")).map(([cur, rs]) => ({
-    type: "scattergl", mode: "markers", name: cur, x: rs.map((r) => r.remaining_maturity_days / 365),
-    y: rs.map((r) => r.avg_yield_pct), text: rs.map((r) => `${r.isin} · ${r.trade_date}`),
-    marker: {color: colorFor(cur), opacity: 0.6, size: rs.map((r) => Math.max(5, Math.sqrt(r.turnover / maxT) * 26))},
-    hovertemplate: "%{text}<br>ročnost %{x:.2f} god · prinos %{y:.2f}%<extra>" + cur + "</extra>",
-  }));
+  const traces = Object.entries(groupBy(rows, "currency")).map(([cur, rs]) => {
+    // scale bubbles per currency: turnovers in different currencies are not comparable
+    const maxT = Math.max(...rs.map((r) => r.turnover)) || 1;
+    return {
+      type: "scattergl", mode: "markers", name: cur, x: rs.map((r) => r.remaining_maturity_days / 365),
+      y: rs.map((r) => r.avg_yield_pct), text: rs.map((r) => `${r.isin} · ${r.trade_date}`),
+      marker: {color: colorFor(cur), opacity: 0.6, size: rs.map((r) => Math.max(5, Math.sqrt(r.turnover / maxT) * 26))},
+      hovertemplate: "%{text}<br>ročnost %{x:.2f} god · prinos %{y:.2f}%<extra>" + cur + "</extra>",
+    };
+  });
   plot(traces, {xaxis: {title: "Preostala ročnost (godine)"}, yaxis: {title: "Prosečni prinos (%)"}});
 }
 
@@ -160,10 +163,11 @@ function drawBuckets(rows) {
   plot(traces, layout);
 }
 
-function drawExtremes(rows) {
+// chartRows: all days in chronological order; tableRows: top rows in the user's chosen sort
+function drawExtremes(chartRows, tableRows) {
   const tbl = $("extremes-table");
-  if (!rows.length) { emptyChart("Nema podataka"); tbl.innerHTML = ""; return; }
-  const chronological = [...rows].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
+  if (!chartRows.length) { emptyChart("Nema podataka"); tbl.innerHTML = ""; return; }
+  const chronological = [...chartRows].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
   const traces = [];
   for (const [cur, rs] of Object.entries(groupBy(chronological, "currency"))) {
     traces.push({type: "scatter", mode: "lines", name: `${cur} najmanji`, x: rs.map((r) => r.trade_date),
@@ -174,7 +178,7 @@ function drawExtremes(rows) {
   }
   plot(traces, {yaxis: {title: "Prinos (%)"}});
   tbl.innerHTML = "<table><thead><tr><th class='l'>Datum</th><th class='l'>Val.</th><th>Najveći %</th><th class='l'>ISIN</th><th>Najmanji %</th><th class='l'>ISIN</th><th>Raspon</th></tr></thead><tbody>" +
-    rows.map((r) => `<tr><td class="l">${esc(r.trade_date)}</td><td class="l">${esc(r.currency)}</td><td>${fmt(r.highest_pct, 2)}</td><td class="l">${esc(r.highest_isin)}</td><td>${fmt(r.lowest_pct, 2)}</td><td class="l">${esc(r.lowest_isin)}</td><td>${fmt(r.range_pct, 2)}</td></tr>`).join("") +
+    tableRows.map((r) => `<tr><td class="l">${esc(r.trade_date)}</td><td class="l">${esc(r.currency)}</td><td>${fmt(r.highest_pct, 2)}</td><td class="l">${esc(r.highest_isin)}</td><td>${fmt(r.lowest_pct, 2)}</td><td class="l">${esc(r.lowest_isin)}</td><td>${fmt(r.range_pct, 2)}</td></tr>`).join("") +
     "</tbody></table>";
 }
 
@@ -187,7 +191,13 @@ async function loadTab() {
   if (state.tab === "time") drawTime(await api("/api/query/timeseries", {body: {filter, granularity: $("gran").value}}));
   else if (state.tab === "scatter") drawScatter(await api("/api/query/scatter", {body: {filter}}));
   else if (state.tab === "buckets") drawBuckets(await api("/api/query/buckets", {body: {filter}}));
-  else drawExtremes(await api("/api/query/extremes", {body: {filter, sort_by: state.exSort, order: state.exOrder, limit: 500}}));
+  else {
+    const [chartRows, tableRows] = await Promise.all([
+      api("/api/query/extremes", {body: {filter, sort_by: "trade_date", order: "asc", limit: 5000}}),
+      api("/api/query/extremes", {body: {filter, sort_by: state.exSort, order: state.exOrder, limit: 500}}),
+    ]);
+    drawExtremes(chartRows, tableRows);
+  }
 }
 
 async function loadRows() {
@@ -197,14 +207,17 @@ async function loadRows() {
 
 async function refreshAll(resetPage = true) {
   if (resetPage) state.page = 1;
-  showError("");
+  let error = "";
   try {
     const filter = readFilter();
     const [summary] = await Promise.all([api("/api/query/summary", {body: {filter}}), loadRows(), loadTab()]);
     renderKpis(summary);
-  } catch (e) { showError(e.message); }
+  } catch (e) { error = e.message; }
+  // a fresh query error wins; otherwise keep showing the sticky load error / empty-database hint
+  showError(error || state.loadError || (state.emptyDb ? EMPTY_DB_HINT : ""));
 }
 
+const EMPTY_DB_HINT = "Baza je prazna. Klikni „Update base“ da preuzmeš podatke sa NBS-a.";
 let timer = null;
 const debounced = () => { clearTimeout(timer); timer = setTimeout(() => refreshAll(true), 300); };
 
@@ -213,7 +226,7 @@ async function loadMeta() {
   const upd = m.last_update_utc ? new Date(m.last_update_utc).toLocaleString("sr-RS") : "nikad";
   $("meta").textContent = `Podaci: ${m.first_trade_date || "–"} → ${m.last_trade_date || "–"} · ${fmt(m.rows)} redova · poslednje ažuriranje: ${upd} · v${m.version}`;
   $("foot-range").textContent = `verzija ${m.version}`;
-  if (!m.rows) showError("Baza je prazna. Klikni „Update base“ da preuzmeš podatke sa NBS-a.");
+  state.emptyDb = !m.rows;
 }
 
 async function loadIsins() {
@@ -246,7 +259,7 @@ async function runUpdate() {
     }
   } catch (e) { $("update-log").textContent = `GREŠKA: ${e.message}`; }
   $("btn-update").disabled = false;
-  await Promise.all([loadMeta(), loadIsins()]);
+  try { state.loadError = ""; await Promise.all([loadMeta(), loadIsins()]); } catch (e) { state.loadError = e.message; }
   await refreshAll();
 }
 
@@ -304,6 +317,6 @@ $("btn-delete").onclick = async () => {
 };
 
 (async function init() {
-  try { await Promise.all([loadMeta(), loadIsins(), loadSaved()]); } catch (e) { showError(e.message); }
+  try { await Promise.all([loadMeta(), loadIsins(), loadSaved()]); } catch (e) { state.loadError = e.message; }
   await refreshAll();
 })();
