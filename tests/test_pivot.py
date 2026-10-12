@@ -161,10 +161,14 @@ def test_filters_apply_before_grouping(sample):
 
 
 def test_ties_are_broken_by_dimension_ascending(conn):
-    load_rows(conn, [make_row(isin=B, turnover=10.0), make_row(isin=A, turnover=10.0)])
-    res = run_pivot(conn, ALL, q(dimensions=["isin"], measures=["turnover"],
-                                  sort_by="turnover", order="desc"))
-    assert [r["dims"][0] for r in res["rows"]] == [A, B]
+    # Equal turnover. The 10Y+ group is inserted first, and its label sorts before "5-10Y" as text,
+    # so only the bucket sort expression (5-10Y before 10Y+) can produce the expected order.
+    load_rows(conn, [make_row(isin=A, remaining_maturity_days=4000, turnover=10.0),
+                     make_row(isin=B, remaining_maturity_days=2600, turnover=10.0)])
+    for order in ("desc", "asc"):
+        res = run_pivot(conn, ALL, q(dimensions=["remaining_bucket"], measures=["turnover"],
+                                      sort_by="turnover", order=order))
+        assert [r["dims"][0] for r in res["rows"]] == ["5-10Y", "10Y+"]
 
 
 def test_empty_result(conn):
