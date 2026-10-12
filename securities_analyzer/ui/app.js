@@ -264,6 +264,7 @@ function setMode(mode) {
   $("view-analysis").hidden = mode !== "analysis";
   $("mode-overview").classList.toggle("active", mode === "overview");
   $("mode-analysis").classList.toggle("active", mode === "analysis");
+  if (mode !== "overview") seq.all++;            // drop Pregled's in-flight refresh so it cannot touch the shared banner
   Analysis.setActive(mode === "analysis");
   if (mode === "overview") refreshAll(true);
 }

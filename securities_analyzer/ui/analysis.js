@@ -46,7 +46,7 @@ const Analysis = (function () {
       state.sortBy = s.sort_by;
       state.order = s.order;
     }
-    if (!state.limitTouched) state.limit = firstKind === "category" ? 25 : 1000;
+    if (!state.limitTouched) state.limit = firstKind === "category" ? 25 : state.catalog.limits.max_limit;
     if (!state.horizontalTouched) state.chart.horizontal = firstKind === "category";
   }
 
@@ -216,11 +216,12 @@ const Analysis = (function () {
     wire();
     applyDefaults();
     syncControls();
+    if (state.active) refresh();                 // the view was activated before the catalog arrived
   }
 
   function setActive(flag) {
     state.active = !!flag;
-    if (state.active) { refresh(); return; }
+    if (state.active) { clearTimeout(state.timer); state.timer = null; refresh(); return; }
     // leaving Analiza: invalidate in-flight requests and pending redraws so a late response cannot
     // touch the banner or the DOM while Pregled is showing (app.js re-renders the banner itself)
     state.seq++;
