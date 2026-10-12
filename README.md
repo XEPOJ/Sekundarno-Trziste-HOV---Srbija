@@ -25,7 +25,7 @@ Without `data/seed.db` the app starts empty; press **Update base** to download e
 
 ## Develop
     python -m pytest -q     # real-data tests run when SA_RAW_DIR points at the yearly CSVs
-    node --test tests_js/pivot_chart.test.js   # chart logic unit tests
+    node --test tests_js/pivot_chart.test.js tests_js/isin_filter.test.js   # UI logic unit tests (charts, ISIN search)
 The `httpx2` dev dependency exists because Starlette's TestClient prefers it.
 
 ## Notes

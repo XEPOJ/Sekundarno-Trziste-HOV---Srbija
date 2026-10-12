@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: "22"
       - name: JS unit tests
-        run: node --test tests_js/pivot_chart.test.js
+        run: node --test tests_js/pivot_chart.test.js tests_js/isin_filter.test.js
       - name: Build seed database
         run: python -X utf8 -m securities_analyzer build-seed data/raw data/seed.db
       - name: Build exe

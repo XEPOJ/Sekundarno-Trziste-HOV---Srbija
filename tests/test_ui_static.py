@@ -34,3 +34,13 @@ def test_analysis_assets_and_mode_switch_are_served(db_path):
         r = c.get("/" + asset)
         assert r.status_code == 200 and len(r.text) > 500
     assert html.index("pivot_chart.js") < html.index("analysis.js") < html.index("app.js")
+
+
+def test_isin_picker_markup_and_script_order(db_path):
+    c = TestClient(create_app(db_path), base_url="http://127.0.0.1")
+    html = c.get("/").text
+    for needle in ('id="isin-search"', 'id="isin"', 'id="isin-all"', 'id="isin-none"', 'id="isin-count"', "isin_filter.js"):
+        assert needle in html, needle
+    r = c.get("/isin_filter.js")
+    assert r.status_code == 200 and "IsinFilter" in r.text
+    assert html.index("isin_filter.js") < html.index("app.js")

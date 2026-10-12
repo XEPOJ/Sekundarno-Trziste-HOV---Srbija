@@ -63,6 +63,7 @@ function writeFilter(f) {
   // a saved currency that is no longer listed stays visible (and applied) instead of being dropped silently
   renderCurrencies(state.currencies, f.currency || []);
   for (const o of $("isin").options) o.selected = (f.isin || []).includes(o.value);
+  updateIsinCount();
 }
 
 function resetForm() {
@@ -71,6 +72,28 @@ function resetForm() {
   $("yield_basis").value = "avg";
   renderCurrencies(state.currencies, []);
   for (const o of $("isin").options) o.selected = false;
+  $("isin-search").value = "";
+  applyIsinSearch();
+}
+
+/* ---------- ISIN picker: search box, select all / clear, status line ---------- */
+function updateIsinCount() {
+  const opts = [...$("isin").options];
+  $("isin-count").textContent = IsinFilter.countLabel({
+    selected: opts.filter((o) => o.selected).length, total: opts.length, shown: opts.filter((o) => !o.hidden).length});
+}
+
+// hidden options keep their selected state, so a narrowed list never drops what was already chosen
+function applyIsinSearch() {
+  const q = $("isin-search").value;
+  for (const o of $("isin").options) o.hidden = !IsinFilter.matches(o.textContent, q);
+  updateIsinCount();
+}
+
+// the dispatched input event reaches the #filters listener, which refreshes the current view
+function changeIsinSelection(pick) {
+  for (const o of $("isin").options) if (pick(o) !== null) o.selected = pick(o);
+  $("isin").dispatchEvent(new Event("input", {bubbles: true}));
 }
 
 // Currency checkboxes come from the data (distinct currencies in /api/securities) plus any checked extras.
@@ -288,7 +311,9 @@ async function loadIsins() {
   const ticked = [...document.querySelectorAll("input[name=currency]:checked")].map((i) => i.value);
   state.currencies = [...new Set(sel.map((s) => s.currency))].sort();
   renderCurrencies(state.currencies, ticked);
-  $("isin").innerHTML = sel.map((s) => `<option value="${esc(s.isin)}">${esc(s.isin)} · ${esc(s.currency)} · ${fmt(s.coupon_pct, 2)}% · ${esc(s.maturity_date)}</option>`).join("");
+  const chosen = new Set([...$("isin").selectedOptions].map((o) => o.value));
+  $("isin").innerHTML = sel.map((s) => `<option value="${esc(s.isin)}"${chosen.has(s.isin) ? " selected" : ""}>${esc(s.isin)} · ${esc(s.currency)} · ${fmt(s.coupon_pct, 2)}% · ${esc(s.maturity_date)}</option>`).join("");
+  applyIsinSearch();
 }
 
 async function loadSaved() {
@@ -331,7 +356,11 @@ async function doExport(format) {
 
 /* ---------- wiring ---------- */
 // delegated, so the dynamically built currency checkboxes are covered too
-$("filters").addEventListener("input", (ev) => { if (ev.target.id !== "saved") debounced(); });
+$("filters").addEventListener("input", (ev) => { if (ev.target.id !== "saved" && ev.target.id !== "isin-search") debounced(); });
+$("isin-search").addEventListener("input", applyIsinSearch);
+$("isin").addEventListener("input", updateIsinCount);
+$("isin-all").onclick = () => changeIsinSelection((o) => (o.hidden ? null : true));
+$("isin-none").onclick = () => changeIsinSelection(() => false);
 $("btn-reset").onclick = () => { resetForm(); refreshCurrent(); };
 $("mode-overview").onclick = () => setMode("overview");
 $("mode-analysis").onclick = () => setMode("analysis");

@@ -20,7 +20,7 @@ input, select { background: var(--panel); border: 1px solid var(--line); border-
 #update-panel { padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 #update-log { margin: 0; max-height: 140px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
 #error { margin: 8px 16px; padding: 8px 12px; border: 1px solid var(--warn); color: var(--warn); border-radius: 6px; }
-.layout { display: grid; grid-template-columns: 280px 1fr; gap: 12px; padding: 12px 16px; align-items: start; }
+.layout { display: grid; grid-template-columns: 330px 1fr; gap: 12px; padding: 12px 16px; align-items: start; }
 aside { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; position: sticky; top: 8px; max-height: calc(100vh - 80px); overflow: auto; }
 fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 10px; padding: 6px 8px 8px; }
 legend { font-weight: 600; padding: 0 4px; }
@@ -28,6 +28,10 @@ fieldset label { display: flex; justify-content: space-between; align-items: cen
 fieldset label.chk { justify-content: flex-start; color: var(--muted); font-size: 12px; }
 fieldset input[type=number], fieldset input[type=date], fieldset select { width: 150px; }
 .row-actions { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+#isin-picker input[type=search], #isin-picker select { display: block; width: 100%; margin: 4px 0; }
+#isin-picker select { font-size: 12px; padding: 2px; height: 22em; }
+#isin-picker select option { padding: 1px 4px; }
+#isin-picker .muted { margin-top: 4px; }
 main { min-width: 0; }
 #kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .kpi-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-width: 260px; flex: 1; }

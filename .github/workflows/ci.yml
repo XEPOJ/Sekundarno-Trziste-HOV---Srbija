@@ -17,4 +17,4 @@ jobs:
         with:
           node-version: "22"
       - name: JS unit tests
-        run: node --test tests_js/pivot_chart.test.js
+        run: node --test tests_js/pivot_chart.test.js tests_js/isin_filter.test.js

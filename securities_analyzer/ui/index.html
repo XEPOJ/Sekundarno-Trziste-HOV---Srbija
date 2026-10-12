@@ -82,9 +82,18 @@
   <fieldset>
     <legend>Ostalo</legend>
     <label>min. promet <input type="number" step="any" id="turnover_min"></label>
-    <label>ISIN
-      <select id="isin" multiple size="6"></select>
-    </label>
+  </fieldset>
+
+  <fieldset id="isin-picker">
+    <legend>ISIN (hartije)</legend>
+    <input type="search" id="isin-search" placeholder="Traži: ISIN, valuta, godina…" autocomplete="off" aria-label="Pretraga hartija">
+    <select id="isin" multiple size="14" aria-label="ISIN"></select>
+    <div class="row-actions">
+      <button type="button" id="isin-all">Izaberi sve</button>
+      <button type="button" id="isin-none">Poništi izbor</button>
+    </div>
+    <div id="isin-count" class="muted" aria-live="polite"></div>
+    <div class="muted">Klik bira jednu hartiju, Ctrl+klik dodaje ili uklanja, Shift+klik bira opseg.</div>
   </fieldset>
 
   <fieldset>
@@ -190,6 +199,7 @@
 <script src="vendor/plotly.min.js"></script>
 <script src="pivot_chart.js"></script>
 <script src="analysis.js"></script>
+<script src="isin_filter.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
