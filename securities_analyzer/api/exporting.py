@@ -24,9 +24,23 @@ def unique_export_path(export_dir: Path, stem: str, ext: str) -> Path:
             n += 1
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def sanitize_cell(value):
+    """Neutralise spreadsheet formula injection: text starting with = + - @ (or tab/CR) gets a leading
+    apostrophe so Excel shows it as text. Only strings are touched; numbers, including negative ones, are not."""
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
 def write_table(path: Path, header: list[str], rows: list[list], fmt: Literal["csv", "xlsx"]) -> None:
-    """Write to `<path>.part`, then atomically replace `path`. On any failure no file is left behind."""
+    """Write to `<path>.part`, then atomically replace `path`. On any failure no file is left behind.
+
+    Text cells are passed through `sanitize_cell` (formula-injection guard)."""
     part = path.with_name(path.name + ".part")
+    rows = [[sanitize_cell(v) for v in r] for r in rows]
     try:
         if fmt == "csv":
             with part.open("w", encoding="utf-8-sig", newline="") as fp:

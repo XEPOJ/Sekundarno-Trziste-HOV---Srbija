@@ -54,6 +54,31 @@ def test_write_table_xlsx_sheet_header_and_rows(tmp_path):
     assert [[c.value for c in row] for row in ws.iter_rows()] == [["A", "B"], [1, "x"], [2, None]]
 
 
+DANGEROUS = ["=1+1", "+1+1", "-1+1", "@SUM(A1)", "\t=1+1", "\r=1+1"]
+
+
+def test_sanitize_cell_neutralises_formula_prefixes_only_in_strings():
+    for s in DANGEROUS:
+        assert exporting.sanitize_cell(s) == "'" + s
+    for safe in ["RSMFRSD58761", "OK", "", "1,5", "a=b", " =1"]:
+        assert exporting.sanitize_cell(safe) == safe
+    for value in [-5, -0.25, 0, 3.5, None, True]:
+        assert exporting.sanitize_cell(value) is value
+
+
+@pytest.mark.parametrize("fmt", ["csv", "xlsx"])
+def test_write_table_guards_formula_cells_but_keeps_negative_numbers(tmp_path, fmt):
+    path = tmp_path / f"t.{fmt}"
+    exporting.write_table(path, ["A", "B"], [["=HYPERLINK(\"http://x\")", -7.5], ["@evil", 2]], fmt)
+    if fmt == "csv":
+        rows = list(csv.reader(path.read_text(encoding="utf-8-sig").splitlines()))
+        assert rows[1] == ["'=HYPERLINK(\"http://x\")", "-7.5"] and rows[2] == ["'@evil", "2"]
+    else:
+        ws = load_workbook(path).active
+        assert [[c.value for c in r] for r in ws.iter_rows(min_row=2)] == [["'=HYPERLINK(\"http://x\")", -7.5], ["'@evil", 2]]
+        assert all(c.data_type != "f" for r in ws.iter_rows() for c in r)
+
+
 def test_write_table_csv_failure_leaves_no_files(tmp_path, monkeypatch):
     path = exporting.unique_export_path(tmp_path, "securities", "csv")
 
