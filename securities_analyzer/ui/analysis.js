@@ -30,7 +30,6 @@ const Analysis = (function () {
     }
     if (id === "coupon") return `${App.fmt(v, 2)}%`;
     if (id === "remaining_years" || id === "original_years") return `${v} god.`;
-    if (id === "settlement_lag") return `${v} d.`;
     return v;
   }
 

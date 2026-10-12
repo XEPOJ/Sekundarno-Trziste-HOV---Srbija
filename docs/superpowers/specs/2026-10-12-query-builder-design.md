@@ -43,9 +43,8 @@ v0.1 is a filter panel with four fixed views. The user can narrow rows but canno
 | `remaining_years` | Preostala ročnost (cele godine) | `floor(remaining_days / 365)` | numeric |
 | `original_years` | Originalna ročnost (godine) | `round(original_days / 365, 1)` | numeric |
 | `coupon` | Kupon (%) | `coupon_pct` | numeric |
-| `settlement_lag` | Dani do valutiranja | `settlement_lag_days` | numeric |
 
-Each dimension has a `kind` in the catalog: `time` (the five date dimensions), `ordinal` (a naturally ordered scale: `remaining_bucket`, `remaining_years`, `original_years`, `coupon`, `settlement_lag`) or `category` (`isin`). The UI uses it for defaults and sorting (§7).
+Each dimension has a `kind` in the catalog: `time` (the five date dimensions), `ordinal` (a naturally ordered scale: `remaining_bucket`, `remaining_years`, `original_years`, `coupon`) or `category` (`isin`). The UI uses it for defaults and sorting (§7). (A `settlement_lag` dimension, days between trade and settlement date, existed in the first version and was removed on 2026-10-12: it is 0 for about 81% of the rows and added no insight.)
 
 Each dimension has a *value expression* (what is shown) and a *sort expression* (natural order; for `remaining_bucket` it is the bucket number). Bucket edges are the same as in v0.1 (≤365, ≤1095, ≤1825, ≤3650, else 10Y+). Time dimensions use the same period expressions as the existing time series.
 
@@ -168,3 +167,9 @@ C. **Group counts** — worst case `[date_day, isin]` over the whole seed has 5,
 4. Maximum 2 dimensions and 4 measures; no calculated measures in this version.
 5. Saved queries store the builder state together with the filters.
 6. Multi-visual dashboards and click-to-filter are a possible later step, not part of this one.
+
+## 12. Addendum (2026-10-12): per-security table and more sidebar filters in Pregled
+
+- **New sidebar filters** (all per daily row, see the v0.1 spec's `FilterSpec` table): `quantity` od–do, `turnover` od–do ("Ukupni promet", replaces the single "min. promet"), `min_price` od–do and `max_price` od–do (the day's lowest and highest price), and a "u godinama / u danima" switch on the remaining-maturity block (`remaining_maturity_years` or `remaining_maturity_days`; switching converts the typed values without rounding, so a boundary such as 1.5 years becomes exactly 547.5 days). "Valutiranje (dani)" was removed from the sidebar and from the grouping dimensions.
+- **`POST /api/query/securities`** (body `{filter}`) → one row per ISIN over the whole filtered period, biggest turnover first: `isin, currency, coupon_pct, maturity_date, active_days, transactions, quantity, turnover, weighted_yield_pct, avg_daily_yield_pct, min_yield_pct, max_yield_pct, first_trade, last_trade`. `weighted_yield_pct` is weighted by turnover (`SUM(avg_yield_pct * turnover) / SUM(turnover)`, the same as the KPI cards); `avg_daily_yield_pct` is the plain mean of the daily averages. Nothing is summed across currencies.
+- **UI:** Pregled shows this as the table "Po hartijama za izabrani period" between the chart and the daily rows table; headers sort it client-side. The daily rows (with the daily "Prosek %") stay in the table below, so both the period figure and the daily figures are visible.

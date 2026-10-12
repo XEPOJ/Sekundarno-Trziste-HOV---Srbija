@@ -46,7 +46,6 @@ _DIMENSIONS = [
     Dimension("original_years", "Originalna ročnost (godine)", "ordinal",
               "ROUND(original_maturity_days / 365.0, 1)", "ROUND(original_maturity_days / 365.0, 1)"),
     Dimension("coupon", "Kupon (%)", "ordinal", "coupon_pct", "coupon_pct"),
-    Dimension("settlement_lag", "Dani do valutiranja", "ordinal", "settlement_lag_days", "settlement_lag_days"),
 ]
 
 _MEASURES = [

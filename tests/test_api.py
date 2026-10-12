@@ -275,3 +275,23 @@ def test_pivot_export_reports_truncated_currencies(client):
     body = {"dimensions": ["isin"], "limit": 1, "format": "csv"}
     j = client.post("/api/export/pivot", json=body).json()
     assert j["truncated_currencies"] == ["RSD"] and j["rows"] == 2
+
+
+def test_securities_summary_endpoint(client):
+    j = client.post("/api/query/securities", json={"filter": {"currency": ["RSD"]}}).json()
+    assert [r["isin"] for r in j] == ["RSMFRSD0000B", "RSMFRSD0000A"]           # by turnover, 300 then 100
+    assert {"isin", "currency", "coupon_pct", "maturity_date", "active_days", "transactions", "quantity",
+            "turnover", "weighted_yield_pct", "avg_daily_yield_pct", "min_yield_pct", "max_yield_pct",
+            "first_trade", "last_trade"} == set(j[0])
+    assert j[0]["weighted_yield_pct"] == pytest.approx(6.0)
+
+
+def test_new_sidebar_filters_are_accepted_and_applied(client):
+    body = {"filter": {"quantity": {"min": 1}, "turnover": {"min": 200, "max": 400},
+                       "min_price": {}, "max_price": {"max": 10**9},
+                       "remaining_maturity_days": {"min": 1}, "turnover_min": 0}}
+    j = client.post("/api/query/securities", json=body).json()
+    assert [r["isin"] for r in j] == ["RSMFRSD0000B"]                             # only the 300-turnover day
+    assert client.post("/api/query/rows", json={"filter": {"turnover": {"min": 200}}}).json()["total"] == 1
+    assert client.post("/api/query/securities", json={"filter": {"quantity": {"min": 5, "max": 1}}}).status_code == 422
+    assert client.post("/api/query/securities", json={"filter": {"nonsense": 1}}).status_code == 422

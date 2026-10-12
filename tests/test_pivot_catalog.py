@@ -10,7 +10,7 @@ from securities_analyzer.query.pivot_catalog import (
 def test_catalog_ids_and_order_match_spec():
     assert list(DIMENSIONS) == [
         "isin", "date_day", "date_week", "date_month", "date_quarter", "date_year",
-        "remaining_bucket", "remaining_years", "original_years", "coupon", "settlement_lag",
+        "remaining_bucket", "remaining_years", "original_years", "coupon",
     ]
     assert list(MEASURES) == [
         "turnover", "quantity", "transactions", "active_days", "isin_count",
@@ -18,12 +18,18 @@ def test_catalog_ids_and_order_match_spec():
     ]
 
 
+def test_settlement_lag_is_no_longer_a_dimension():
+    assert "settlement_lag" not in DIMENSIONS
+    with pytest.raises(ValidationError):
+        PivotQuery(dimensions=["settlement_lag"], measures=["turnover"])
+
+
 def test_dimension_kinds():
     assert DIMENSIONS["isin"].kind == "category"
     assert all(DIMENSIONS[d].kind == "time" for d in
                ("date_day", "date_week", "date_month", "date_quarter", "date_year"))
     assert all(DIMENSIONS[d].kind == "ordinal" for d in
-               ("remaining_bucket", "remaining_years", "original_years", "coupon", "settlement_lag"))
+               ("remaining_bucket", "remaining_years", "original_years", "coupon"))
 
 
 def test_catalog_payload_shape():

@@ -45,7 +45,7 @@ main { min-width: 0; }
 #chart-toolbar { display: flex; gap: 12px; margin-bottom: 4px; min-height: 28px; }
 #chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; height: 380px; }
 #extremes-table { margin-top: 8px; max-height: 260px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-#table-section { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+#sec-section, #table-section { margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
 .table-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .spacer { flex: 1; }
 .table-wrap { overflow: auto; max-height: 420px; }
@@ -69,3 +69,6 @@ footer { padding: 10px 16px; text-align: center; }
 #a-chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; height: 420px; }
 #a-notice { margin: 6px 2px; }
 #a-table-section { margin-top: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+#rem-unit { width: auto; font-weight: 400; margin-left: 4px; }
+#sec-section .table-wrap { max-height: 320px; }
+#sec-section > .muted { margin-top: 6px; }

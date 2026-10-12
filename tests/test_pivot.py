@@ -131,7 +131,6 @@ def test_numeric_dimensions(conn):
     assert vals("original_years") == [7.0, 12.5]
     assert vals("remaining_years") == [2, 3]
     assert vals("coupon") == [4.5, 5.0]
-    assert vals("settlement_lag") == [0, 4]
 
 
 def test_two_dimensions_group_order(sample):

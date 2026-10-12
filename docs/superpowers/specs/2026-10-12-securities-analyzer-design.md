@@ -141,14 +141,16 @@ reason code. Flagged rows are **kept** and surfaced in the UI, never silently dr
 | `yield_pct` | `Range`; bounds on the chosen yield basis, in percentage points |
 | `yield_basis` | `avg` (default) / `min` / `max` → `avg_yield_pct` etc. |
 | `remaining_maturity_years`, `original_maturity_years` | `Range`; years (UI) → days |
+| `remaining_maturity_days` | `Range`; the same column as `remaining_maturity_years`, typed in days (the UI offers one block with a "u godinama / u danima" switch and sends only the active one; both would be ANDed) |
+| `quantity`, `turnover`, `min_price`, `max_price` | `Range`; applied to each daily row (one ISIN on one day), not to per-security totals; `turnover` is in the row's own currency; `min_price`/`max_price` are the day's lowest/highest price |
 | `coupon_pct` | `Range`; percentage points |
-| `settlement_lag_days` | `Range`; days |
+| `settlement_lag_days` | `Range`; days (accepted by the API, but no longer shown in the UI; the UI ignores it in old saved queries) |
 | `currency` | list of 3-letter uppercase currency codes (any, e.g. `RSD`/`EUR`) |
 | `isin` | list |
-| `turnover_min` | in the row's own currency |
+| `turnover_min` | legacy single minimum, in the row's own currency (superseded by `turnover`; the UI maps it into "Ukupni promet od" when loading an old saved query) |
 
 `Range` is `{min, max, min_exclusive, max_exclusive}` (all optional; the flags default
-to `false`). It is used for yield, remaining/original maturity, coupon and settlement
+to `false`). It is used for yield, remaining/original maturity, coupon, quantity, turnover, prices and settlement
 lag.
 
 Decisions:

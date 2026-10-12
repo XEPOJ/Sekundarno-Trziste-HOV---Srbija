@@ -30,10 +30,15 @@ class FilterSpec(BaseModel):
     yield_pct: Range = Field(default_factory=Range)
     yield_basis: Literal["avg", "min", "max"] = "avg"
     remaining_maturity_years: Range = Field(default_factory=Range)
+    remaining_maturity_days: Range = Field(default_factory=Range)   # same column as the years filter, entered in days
     original_maturity_years: Range = Field(default_factory=Range)
     coupon_pct: Range = Field(default_factory=Range)
-    settlement_lag_days: Range = Field(default_factory=Range)
-    turnover_min: float | None = None
+    settlement_lag_days: Range = Field(default_factory=Range)       # no longer shown in the UI; still accepted
+    quantity: Range = Field(default_factory=Range)                  # per daily row (one ISIN, one day)
+    turnover: Range = Field(default_factory=Range)                  # per daily row, in the row's own currency
+    min_price: Range = Field(default_factory=Range)                 # the day's lowest price
+    max_price: Range = Field(default_factory=Range)                 # the day's highest price
+    turnover_min: float | None = None                               # legacy single minimum (old saved queries)
     currency: list[str] = Field(default_factory=list, max_length=50)
     isin: list[str] = Field(default_factory=list, max_length=500)
 

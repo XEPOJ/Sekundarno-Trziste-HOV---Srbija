@@ -46,8 +46,13 @@
     </label>
   </fieldset>
 
-  <fieldset class="range" data-range="remaining_maturity_years">
-    <legend>Preostala ročnost (godine)</legend>
+  <fieldset class="range" id="remaining-range" data-range="remaining_maturity_years">
+    <legend>Preostala ročnost
+      <select id="rem-unit" aria-label="Jedinica za preostalu ročnost">
+        <option value="years">u godinama</option>
+        <option value="days">u danima</option>
+      </select>
+    </legend>
     <label>od <input type="number" step="any" data-part="min"></label>
     <label class="chk"><input type="checkbox" data-part="min_exclusive"> strogo veće</label>
     <label>do <input type="number" step="any" data-part="max"></label>
@@ -68,8 +73,30 @@
     <label>do <input type="number" step="any" data-part="max"></label>
   </fieldset>
 
-  <fieldset class="range" data-range="settlement_lag_days">
-    <legend>Valutanje (dani)</legend>
+  <fieldset class="range" data-range="quantity">
+    <legend>Količina (komada)</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label class="chk"><input type="checkbox" data-part="min_exclusive"> strogo veće</label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+    <label class="chk"><input type="checkbox" data-part="max_exclusive"> strogo manje</label>
+  </fieldset>
+
+  <fieldset class="range" data-range="turnover">
+    <legend>Ukupni promet (u valuti hartije)</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label class="chk"><input type="checkbox" data-part="min_exclusive"> strogo veće</label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+    <label class="chk"><input type="checkbox" data-part="max_exclusive"> strogo manje</label>
+  </fieldset>
+
+  <fieldset class="range" data-range="min_price">
+    <legend>Min. cena u danu</legend>
+    <label>od <input type="number" step="any" data-part="min"></label>
+    <label>do <input type="number" step="any" data-part="max"></label>
+  </fieldset>
+
+  <fieldset class="range" data-range="max_price">
+    <legend>Max. cena u danu</legend>
     <label>od <input type="number" step="any" data-part="min"></label>
     <label>do <input type="number" step="any" data-part="max"></label>
   </fieldset>
@@ -77,11 +104,6 @@
   <fieldset>
     <legend>Valuta</legend>
     <div id="currency-list"></div>
-  </fieldset>
-
-  <fieldset>
-    <legend>Ostalo</legend>
-    <label>min. promet <input type="number" step="any" id="turnover_min"></label>
   </fieldset>
 
   <fieldset id="isin-picker">
@@ -138,6 +160,14 @@
     </section>
     <div id="chart"></div>
     <div id="extremes-table" hidden></div>
+
+    <section id="sec-section">
+      <div class="table-bar">
+        <strong id="sec-title">Po hartijama za izabrani period</strong>
+      </div>
+      <div class="table-wrap"><table id="sec-rows"></table></div>
+      <div class="muted">Za svaku hartiju su zbirovi svih dana koji prolaze filtere. Ponderisani prinos je ponderisan prometom, a prosek dnevnih je prost prosek dnevnih prosečnih prinosa (kolona „Prosek %“ u tabeli ispod). Promet je u valuti hartije i nikad se ne sabira preko valuta.</div>
+    </section>
 
     <section id="table-section">
       <div class="table-bar">

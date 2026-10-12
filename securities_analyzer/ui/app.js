@@ -6,7 +6,7 @@ const COLORS = {RSD: "#1f6feb", EUR: "#d9480f"};
 const colorFor = (c) => COLORS[c] || "#6b7280";
 const state = {tab: "time", sort: "trade_date", order: "desc", page: 1, pageSize: 100, total: 0, exSort: "trade_date", exOrder: "desc", emptyDb: false, loadError: "", currencies: [], mode: "overview", securities: {}};
 // request tokens: a response is applied only if no newer request of the same kind was started after it
-const seq = {all: 0, tab: 0, rows: 0};
+const seq = {all: 0, tab: 0, rows: 0, sec: 0};
 const BASIS_WORD = {avg: "prosečni", min: "minimalni", max: "maksimalni"};
 const basisLabel = (b) => `Prinos: ${BASIS_WORD[b] || BASIS_WORD.avg} (osnova)`;
 
@@ -41,17 +41,35 @@ function readFilter() {
     }
     f[fs.dataset.range] = r;
   }
-  const t = $("turnover_min").value;
-  if (t !== "") f.turnover_min = Number(t);
-  f.currency = [...document.querySelectorAll("input[name=currency]:checked")].map((i) => i.value);
+  f.currency =[...document.querySelectorAll("input[name=currency]:checked")].map((i) => i.value);
   f.isin = [...$("isin").selectedOptions].map((o) => o.value);
   return f;
+}
+
+// Remaining maturity is one block that can be typed in years or in days; only the active unit is sent.
+const REM_KEY = {years: "remaining_maturity_years", days: "remaining_maturity_days"};
+const hasBounds = (r) => !!r && (r.min != null || r.max != null);
+
+function setRemainingUnit(unit, convert = false) {
+  const fs = $("remaining-range");
+  const from = fs.dataset.range === REM_KEY.days ? "days" : "years";
+  if (convert && from !== unit) {
+    for (const inp of fs.querySelectorAll("input[data-part=min], input[data-part=max]")) {
+      if (inp.value === "") continue;
+      const v = Number(inp.value);
+      // no rounding to whole days (1.5 years is 547.5 days): the boundary must stay exactly where it was
+      inp.value = String(unit === "days" ? +(v * 365).toFixed(6) : +(v / 365).toFixed(10));
+    }
+  }
+  fs.dataset.range = REM_KEY[unit];
+  $("rem-unit").value = unit;
 }
 
 function writeFilter(f) {
   resetForm();
   for (const id of ["date_from", "date_to"]) if (f[id]) $(id).value = f[id];
   if (f.yield_basis) $("yield_basis").value = f.yield_basis;
+  setRemainingUnit(hasBounds(f.remaining_maturity_days) && !hasBounds(f.remaining_maturity_years) ? "days" : "years");
   for (const fs of document.querySelectorAll("fieldset.range")) {
     const r = f[fs.dataset.range] || {};
     for (const inp of fs.querySelectorAll("[data-part]")) {
@@ -59,7 +77,10 @@ function writeFilter(f) {
       if (inp.type === "checkbox") inp.checked = !!v; else if (v != null) inp.value = v;
     }
   }
-  if (f.turnover_min != null) $("turnover_min").value = f.turnover_min;
+  // queries saved before "Ukupni promet od–do" only have a single minimum
+  if (f.turnover_min != null && !hasBounds(f.turnover)) {
+    document.querySelector("fieldset[data-range=turnover] [data-part=min]").value = f.turnover_min;
+  }
   // a saved currency that is no longer listed stays visible (and applied) instead of being dropped silently
   renderCurrencies(state.currencies, f.currency || []);
   for (const o of $("isin").options) o.selected = (f.isin || []).includes(o.value);
@@ -70,6 +91,7 @@ function resetForm() {
   document.querySelectorAll("#filters input[type=number], #filters input[type=date]").forEach((i) => (i.value = ""));
   document.querySelectorAll("#filters input[type=checkbox]").forEach((i) => (i.checked = false));
   $("yield_basis").value = "avg";
+  setRemainingUnit("years");
   renderCurrencies(state.currencies, []);
   for (const o of $("isin").options) o.selected = false;
   $("isin-search").value = "";
@@ -145,6 +167,40 @@ function renderRows(res, basis) {
   $("prev").disabled = state.page <= 1;
   $("next").disabled = state.page >= pages;
   $("table-title").textContent = `Redovi (${fmt(res.total)}) · ${basisLabel(basis)}`;
+}
+
+/* ---------- per-security summary for the whole filtered period ---------- */
+const SEC_COLS = [
+  ["isin", "ISIN", "l"], ["currency", "Val.", "l"], ["coupon_pct", "Kupon %", 2], ["maturity_date", "Dospeće", "l"],
+  ["active_days", "Dana", 0], ["transactions", "Trans.", 0], ["quantity", "Količina", 0], ["turnover", "Promet", 2],
+  ["weighted_yield_pct", "Pond. prinos %", 2], ["avg_daily_yield_pct", "Prosek dnevnih %", 2],
+  ["min_yield_pct", "Min %", 2], ["max_yield_pct", "Max %", 2],
+];
+const secState = {rows: [], sort: "turnover", order: "desc"};
+
+function renderSecurities() {
+  const {rows, sort, order} = secState;
+  const dir = order === "asc" ? 1 : -1;
+  const sorted = [...rows].sort((a, b) => {              // empty values always last
+    const x = a[sort], y = b[sort];
+    if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1;
+    return (x < y ? -1 : x > y ? 1 : 0) * dir;
+  });
+  $("sec-title").textContent = `Po hartijama za izabrani period (${fmt(rows.length)})`;
+  if (!rows.length) { $("sec-rows").innerHTML = '<tbody><tr><td class="l">Nema rezultata za izabrane filtere.</td></tr></tbody>'; return; }
+  const head = "<thead><tr>" + SEC_COLS.map(([k, label, kind]) =>
+    `<th data-sort="${k}" class="${kind === "l" ? "l" : ""}">${label}${sort === k ? (order === "asc" ? " ▲" : " ▼") : ""}</th>`).join("") + "</tr></thead>";
+  const body = "<tbody>" + sorted.map((r) => "<tr>" + SEC_COLS.map(([k, , kind]) =>
+    `<td class="${kind === "l" ? "l" : ""}">${typeof kind === "number" ? fmt(r[k], kind) : esc(r[k])}</td>`).join("") + "</tr>").join("") + "</tbody>";
+  $("sec-rows").innerHTML = head + body;
+}
+
+async function loadSecurities() {
+  const my = ++seq.sec;
+  const res = await api("/api/query/securities", {body: {filter: readFilter()}});
+  if (my !== seq.sec) return;
+  secState.rows = res;
+  renderSecurities();
 }
 
 // purge first: tabs use different axis layouts (e.g. the per-currency subplots) that must not leak between tabs
@@ -269,7 +325,7 @@ async function refreshAll(resetPage = true) {
   let error = "";
   try {
     const filter = readFilter();
-    const [summary] = await Promise.all([api("/api/query/summary", {body: {filter}}), loadRows(), loadTab()]);
+    const [summary] = await Promise.all([api("/api/query/summary", {body: {filter}}), loadRows(), loadTab(), loadSecurities()]);
     if (my !== seq.all) return;                  // a newer refresh owns the screen now
     renderKpis(summary, filter.yield_basis);
   } catch (e) { error = e.message; }
@@ -357,6 +413,15 @@ async function doExport(format) {
 /* ---------- wiring ---------- */
 // delegated, so the dynamically built currency checkboxes are covered too
 $("filters").addEventListener("input", (ev) => { if (ev.target.id !== "saved" && ev.target.id !== "isin-search") debounced(); });
+$("rem-unit").addEventListener("input", () => setRemainingUnit($("rem-unit").value, true));  // converts the typed values; the filters listener then refreshes
+$("sec-rows").addEventListener("click", (ev) => {
+  const th = ev.target.closest("th[data-sort]");
+  if (!th) return;
+  const k = th.dataset.sort;
+  secState.order = secState.sort === k ? (secState.order === "asc" ? "desc" : "asc") : (k === "isin" || k === "currency" || k === "maturity_date" ? "asc" : "desc");
+  secState.sort = k;
+  renderSecurities();
+});
 $("isin-search").addEventListener("input", applyIsinSearch);
 $("isin").addEventListener("input", updateIsinCount);
 $("isin-all").onclick = () => changeIsinSelection((o) => (o.hidden ? null : true));

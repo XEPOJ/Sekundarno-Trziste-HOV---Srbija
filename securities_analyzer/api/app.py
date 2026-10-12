@@ -135,6 +135,10 @@ def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = 
         return {"kpis": service.kpis(conn, body.filter),
                 "quality_flagged": service.quality_count(conn, body.filter)}
 
+    @app.post("/api/query/securities")
+    def q_securities(body: QueryBody, conn=Depends(get_conn)):
+        return service.securities_summary(conn, body.filter)
+
     @app.post("/api/query/timeseries")
     def q_timeseries(body: SeriesBody, conn=Depends(get_conn)):
         return _guard(service.yield_timeseries, conn, body.filter, body.granularity)

@@ -50,6 +50,31 @@ def kpis(conn, spec: FilterSpec) -> list[dict]:
         FROM trades WHERE {where} GROUP BY currency ORDER BY currency""", params)
 
 
+def securities_summary(conn, spec: FilterSpec) -> list[dict]:
+    """One row per ISIN for the whole filtered period, biggest turnover first.
+
+    The yield is weighted by turnover (same as the KPI cards); `avg_daily_yield_pct` is the plain mean of
+    the daily averages. Turnover is in the security's own currency, so nothing is summed across currencies.
+    """
+    where, params = build_where(spec)
+    return _all(conn, f"""
+        SELECT isin, currency,
+               MAX(coupon_pct) AS coupon_pct,
+               MAX(maturity_date) AS maturity_date,
+               COUNT(DISTINCT trade_date) AS active_days,
+               SUM(transaction_count) AS transactions,
+               SUM(quantity) AS quantity,
+               SUM(turnover) AS turnover,
+               SUM(avg_yield_pct * turnover) / SUM(turnover) AS weighted_yield_pct,
+               AVG(avg_yield_pct) AS avg_daily_yield_pct,
+               MIN(min_yield_pct) AS min_yield_pct,
+               MAX(max_yield_pct) AS max_yield_pct,
+               MIN(trade_date) AS first_trade,
+               MAX(trade_date) AS last_trade
+        FROM trades WHERE {where}
+        GROUP BY isin, currency ORDER BY turnover DESC, isin""", params)
+
+
 def yield_timeseries(conn, spec: FilterSpec, granularity: str) -> list[dict]:
     if granularity not in _PERIOD:
         raise ValueError(f"nepoznata granulacija: {granularity!r}")

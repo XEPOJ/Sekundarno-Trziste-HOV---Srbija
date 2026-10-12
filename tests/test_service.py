@@ -125,3 +125,42 @@ def test_scatter_columns(sample):
     assert len(rows) == 4
     assert set(rows[0]) == {"trade_date", "isin", "currency", "remaining_maturity_days",
                             "avg_yield_pct", "turnover"}
+
+
+def _three_days_for_a(conn):
+    d1, d2, d3 = date(2023, 6, 1), date(2023, 6, 2), date(2023, 6, 5)
+    load_rows(conn, [
+        make_row(isin="RSMFRSD0000A", turnover=100.0, quantity=10, transaction_count=2, avg_yield_pct=4.0,
+                 min_yield_pct=3.5, max_yield_pct=4.5, trade_date=d1, settlement_date=d1),
+        make_row(isin="RSMFRSD0000A", turnover=100.0, quantity=20, transaction_count=1, avg_yield_pct=5.0,
+                 min_yield_pct=4.8, max_yield_pct=5.2, trade_date=d2, settlement_date=d2),
+        make_row(isin="RSMFRSD0000A", turnover=300.0, quantity=30, transaction_count=3, avg_yield_pct=9.0,
+                 min_yield_pct=8.0, max_yield_pct=9.5, trade_date=d3, settlement_date=d3),
+        make_row(isin="RSMFRSD0000B", currency="EUR", turnover=50.0, quantity=5, transaction_count=1,
+                 avg_yield_pct=3.0, trade_date=d1, settlement_date=d1),
+    ])
+    return conn
+
+
+def test_securities_summary_gives_one_row_per_isin_for_the_whole_period(conn):
+    rows = service.securities_summary(_three_days_for_a(conn), ALL)
+    assert [r["isin"] for r in rows] == ["RSMFRSD0000A", "RSMFRSD0000B"]      # biggest turnover first
+    a = rows[0]
+    assert (a["currency"], a["active_days"], a["transactions"], a["quantity"], a["turnover"]) == ("RSD", 3, 6, 60, 500.0)
+    assert a["weighted_yield_pct"] == pytest.approx((4 * 100 + 5 * 100 + 9 * 300) / 500)   # 7.2, weighted by turnover
+    assert a["avg_daily_yield_pct"] == pytest.approx(6.0)                                  # plain mean of the daily averages
+    assert (a["min_yield_pct"], a["max_yield_pct"]) == (3.5, 9.5)
+    assert (a["first_trade"], a["last_trade"]) == ("2023-06-01", "2023-06-05")
+    assert a["coupon_pct"] == 5.0 and a["maturity_date"] == "2030-07-30"
+    assert rows[1]["currency"] == "EUR" and rows[1]["weighted_yield_pct"] == pytest.approx(3.0)
+
+
+def test_securities_summary_only_uses_rows_that_pass_the_filters(conn):
+    _three_days_for_a(conn)
+    a = service.securities_summary(conn, FilterSpec(quantity=Range(min=15)))[0]
+    assert a["active_days"] == 2 and a["quantity"] == 50 and a["turnover"] == 400.0
+    assert a["weighted_yield_pct"] == pytest.approx((5 * 100 + 9 * 300) / 400)
+    only_late = service.securities_summary(conn, FilterSpec(date_from=date(2023, 6, 5)))
+    assert [(r["isin"], r["active_days"]) for r in only_late] == [("RSMFRSD0000A", 1)]
+    assert service.securities_summary(conn, FilterSpec(isin=["RSMFRSD0000B"]))[0]["currency"] == "EUR"
+    assert service.securities_summary(conn, FilterSpec(quantity=Range(min=10**6))) == []

@@ -12,11 +12,23 @@ def test_ui_is_served_with_required_assets(db_path):
         assert c.get("/" + asset).status_code == 200
 
 
-def test_ui_has_settlement_lag_filter_and_dynamic_currency_slot(db_path):
+def test_ui_has_dynamic_currency_slot_and_no_settlement_lag_filter(db_path):
     c = TestClient(create_app(db_path), base_url="http://127.0.0.1")
     html = c.get("/").text
-    assert 'data-range="settlement_lag_days"' in html
+    assert 'data-range="settlement_lag_days"' not in html
     assert 'id="currency-list"' in html and 'value="RSD"' not in html
+
+
+def test_sidebar_has_the_range_filters_and_the_per_security_table(db_path):
+    c = TestClient(create_app(db_path), base_url="http://127.0.0.1")
+    html = c.get("/").text
+    for key in ("quantity", "turnover", "min_price", "max_price", "remaining_maturity_years", "yield_pct"):
+        assert f'data-range="{key}"' in html, key
+    for needle in ('id="rem-unit"', 'value="days"', 'id="sec-rows"', 'id="sec-section"'):
+        assert needle in html, needle
+    assert 'id="turnover_min"' not in html                    # replaced by "Ukupni promet" od-do
+    js = c.get("/app.js").text
+    assert "/api/query/securities" in js and "remaining_maturity_days" in js
 
 
 def test_ui_script_sends_heartbeat(db_path):
