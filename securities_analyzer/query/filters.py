@@ -41,7 +41,7 @@ class FilterSpec(BaseModel):
     @classmethod
     def _currencies(cls, v):
         for c in v:
-            if not _CURRENCY.match(c):
+            if not _CURRENCY.fullmatch(c):
                 raise ValueError(f"neispravna valuta {c!r}")
         return v
 
@@ -49,7 +49,7 @@ class FilterSpec(BaseModel):
     @classmethod
     def _isins(cls, v):
         for i in v:
-            if not _ISIN.match(i):
+            if not _ISIN.fullmatch(i):
                 raise ValueError(f"neispravan ISIN {i!r}")
         return v
 

@@ -6,10 +6,10 @@ _YIELD_COL = {"avg": "avg_yield_pct", "min": "min_yield_pct", "max": "max_yield_
 def _range(col: str, rng: Range, scale: float, clauses: list, params: list) -> None:
     if rng.min is not None:
         clauses.append(f"{col} {'>' if rng.min_exclusive else '>='} ?")
-        params.append(rng.min * scale)
+        params.append(round(rng.min * scale, 6))
     if rng.max is not None:
         clauses.append(f"{col} {'<' if rng.max_exclusive else '<='} ?")
-        params.append(rng.max * scale)
+        params.append(round(rng.max * scale, 6))
 
 
 def build_where(spec: FilterSpec) -> tuple[str, list]:

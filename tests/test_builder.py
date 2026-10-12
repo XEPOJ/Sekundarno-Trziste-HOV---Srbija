@@ -48,6 +48,15 @@ def test_remaining_maturity_three_years_strict(conn):
     assert pick(conn, incl, "remaining_maturity_days") == [1095, 1096]
 
 
+def test_fractional_years_boundaries_are_exact(conn):
+    load_rows(conn, [make_row(isin=f"RSMFRSD0000{i}", remaining_maturity_days=d)
+                     for i, d in enumerate([510, 511, 512], 1)])
+    col = "remaining_maturity_days"
+    assert pick(conn, FilterSpec(remaining_maturity_years=Range(min=1.4, min_exclusive=True)), col) == [512]
+    assert pick(conn, FilterSpec(remaining_maturity_years=Range(min=1.4)), col) == [511, 512]
+    assert pick(conn, FilterSpec(remaining_maturity_years=Range(max=1.4, max_exclusive=True)), col) == [510]
+
+
 def test_original_maturity_and_coupon_and_lag(conn):
     load_rows(conn, [
         make_row(isin="RSMFRSD00001", original_maturity_days=730, coupon_pct=1.7),
@@ -81,6 +90,8 @@ def test_filters_are_anded(conn):
     dict(date_from=date(2024, 1, 1), date_to=date(2023, 1, 1)),
     dict(currency=["rsd"]),
     dict(currency=["RSDX"]),
+    dict(currency=["RSD\n"]),
+    dict(isin=["RSMFRSD00001\n"]),
     dict(isin=["x' OR 1=1 --"]),
     dict(yield_basis="median"),
     dict(unknown_field=1),
