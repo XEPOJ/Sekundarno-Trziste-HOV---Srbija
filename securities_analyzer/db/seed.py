@@ -38,5 +38,7 @@ def ensure_user_db(db_path: Path, seed_path: Path | None) -> None:
         if seed_path is not None and Path(seed_path).exists():
             shutil.copyfile(seed_path, db_path)
     conn = connect(db_path)
-    init_schema(conn)
-    conn.close()
+    try:
+        init_schema(conn)
+    finally:
+        conn.close()

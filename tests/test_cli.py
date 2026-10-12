@@ -1,6 +1,9 @@
 from datetime import date
 
+import pytest
+
 from securities_analyzer.__main__ import main
+from securities_analyzer import app as app_module
 from securities_analyzer.app import find_free_port
 from securities_analyzer.db.repo import data_range
 from securities_analyzer.db.schema import connect
@@ -21,7 +24,7 @@ def test_build_seed_command(tmp_path, capsys):
     c = connect(out)
     assert data_range(c)[2] == 1
     c.close()
-    assert "1" in capsys.readouterr().out
+    assert "Imported 1 rows" in capsys.readouterr().out
 
 
 def test_fetch_all_command_writes_one_file_per_year(tmp_path, monkeypatch):
@@ -36,3 +39,19 @@ def test_fetch_all_command_writes_one_file_per_year(tmp_path, monkeypatch):
     assert calls == [2020, 2021, 2022]
     assert sorted(p.name for p in out.glob("*.csv")) == [
         f"GovermentSecuritySecondaryTrade_{y}.csv" for y in (2020, 2021, 2022)]
+
+
+def test_run_with_corrupt_db_exits_2_and_keeps_db(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    db = tmp_path / "SecuritiesAnalyzer" / "data.db"
+    db.parent.mkdir()
+    garbage = b"not a database" * 100
+    db.write_bytes(garbage)
+    shown = []
+    monkeypatch.setattr(app_module, "_show_dialog", shown.append)
+    monkeypatch.setattr(app_module.logging, "basicConfig", lambda **kw: None)  # no open log file in tmp_path
+    with pytest.raises(SystemExit) as exc:
+        app_module.run()
+    assert exc.value.code == 2
+    assert db.read_bytes() == garbage
+    assert len(shown) == 1 and str(db) in shown[0]

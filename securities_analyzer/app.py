@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 import webbrowser
+from typing import NoReturn
 
 import uvicorn
 
@@ -13,6 +14,7 @@ from .db.seed import ensure_user_db
 from .paths import seed_path, user_data_dir
 
 log = logging.getLogger("securities_analyzer")
+APP_TITLE = "Analiza državnih hartija"
 
 
 def find_free_port() -> int:
@@ -21,20 +23,37 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _show_dialog(msg: str) -> None:
+    """Native error dialog; the only visible channel in a windowed build (no stderr)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, msg, APP_TITLE, 0x10)
+    except Exception:                           # never let the dialog mask the real error
+        log.exception("Could not show error dialog")
+
+
+def _fatal(msg: str, code: int) -> NoReturn:
+    log.error(msg)
+    if sys.stderr is not None:                  # None in PyInstaller --windowed builds
+        print(msg, file=sys.stderr)
+    _show_dialog(msg)
+    raise SystemExit(code)
+
+
 def run() -> None:
     data_dir = user_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(filename=data_dir / "app.log", level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
+                        encoding="utf-8", format="%(asctime)s %(levelname)s %(message)s")
     db_path = data_dir / "data.db"
     try:
         ensure_user_db(db_path, seed_path())
     except sqlite3.DatabaseError as e:
         # Never delete or replace a user's DB automatically.
         msg = f"Baza podataka je oštećena ili zaključana: {db_path}\n{e}"
-        log.error(msg)
-        print(msg, file=sys.stderr)
-        raise SystemExit(2) from e
+        _fatal(msg, 2)
 
     port = find_free_port()
     server = uvicorn.Server(uvicorn.Config(
@@ -45,13 +64,13 @@ def run() -> None:
     while not server.started and time.time() < deadline:
         time.sleep(0.05)
     if not server.started:
-        raise SystemExit("Server nije pokrenut")
+        _fatal("Server nije pokrenut", 3)
 
     url = f"http://127.0.0.1:{port}/"
     log.info("Serving %s", url)
     try:
         import webview
-        webview.create_window("Analiza državnih hartija", url, width=1440, height=900)
+        webview.create_window(APP_TITLE, url, width=1440, height=900)
         webview.start()
     except Exception as e:                      # no pywebview / no WebView2 runtime
         log.warning("Window unavailable (%s); falling back to browser", e)
