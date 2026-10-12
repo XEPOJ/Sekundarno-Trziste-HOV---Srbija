@@ -126,3 +126,9 @@ def test_run_falls_back_to_browser_and_exits_when_heartbeats_stop(tmp_path, monk
     assert not t.is_alive(), "run() must return once heartbeats stop"
     assert len(opened) == 1 and opened[0].startswith("http://127.0.0.1:")
     assert window_calls == []                       # unusable WebView2 -> no window attempted
+
+
+def test_default_heartbeat_timing_tolerates_throttled_background_tabs():
+    # Browsers throttle timers in hidden tabs to ~1/min, so the timeout must be generous.
+    assert app_module.HEARTBEAT_TIMEOUT_S >= 180
+    assert app_module.HEARTBEAT_GRACE_S >= app_module.HEARTBEAT_TIMEOUT_S

@@ -11,7 +11,7 @@ fresh data from NBS onto your own machine. No server, no account.
 3. Windows SmartScreen may warn about an unsigned app: "More info" → "Run anyway".
 4. Press **Update base** from time to time. Your data lives in `%APPDATA%\SecuritiesAnalyzer\`.
 
-The app needs the Microsoft Edge WebView2 runtime for its own window (it ships with Windows 11 and Edge). Without it, the app opens in your default browser instead and exits about 1 minute after you close the browser tab.
+The app needs the Microsoft Edge WebView2 runtime for its own window (it ships with Windows 11 and Edge). Without it, the app opens in your default browser instead and exits about 3 minutes after you close the browser tab.
 
 ## Run from source
     python -m venv .venv && .venv\Scripts\activate

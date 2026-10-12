@@ -103,8 +103,8 @@ Rules of the boundaries:
   fallback. If that internal attribute cannot be inspected, the window is attempted anyway.
 - Browser-fallback lifetime: the windowed exe has no console, so the UI posts
   `POST /api/heartbeat` (`{"ok": true}`) on load and every 10 s. In fallback mode only, a
-  watchdog stops the server when no heartbeat arrives for 60 s (180 s grace if none ever
-  arrived), which ends the process about a minute after the tab is closed.
+  watchdog stops the server when no heartbeat arrives for 180 s (the same 180 s grace if none ever
+  arrived), which ends the process about 3 minutes after the tab is closed.
 
 ## 4. Database (SQLite, single file)
 

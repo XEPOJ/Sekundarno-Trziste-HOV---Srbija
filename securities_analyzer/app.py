@@ -18,7 +18,7 @@ APP_TITLE = "Analiza državnih hartija"
 
 # Browser-fallback watchdog (no console in the windowed exe, so Ctrl+C is not an exit path).
 HEARTBEAT_GRACE_S = 180.0      # how long to wait for the very first heartbeat
-HEARTBEAT_TIMEOUT_S = 60.0     # silence after which the app exits
+HEARTBEAT_TIMEOUT_S = 180.0    # silence after which the app exits (hidden tabs throttle timers to ~1/min)
 WATCHDOG_INTERVAL_S = 2.0
 
 
