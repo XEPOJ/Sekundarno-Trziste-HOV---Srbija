@@ -1,7 +1,7 @@
 # Query builder ("Analiza") — design spec
 
 Date: 2026-10-12
-Status: draft for review
+Status: implemented on branch `feature/query-builder`; synced with the code (this document describes what was built)
 Extends: `2026-10-12-securities-analyzer-design.md` (v0.1, branch `build/v0.1`). Everything in that spec stays valid; this adds one feature on top of it.
 
 ## 1. Why
@@ -45,6 +45,8 @@ v0.1 is a filter panel with four fixed views. The user can narrow rows but canno
 | `coupon` | Kupon (%) | `coupon_pct` | numeric |
 | `settlement_lag` | Dani do valutiranja | `settlement_lag_days` | numeric |
 
+Each dimension has a `kind` in the catalog: `time` (the five date dimensions), `ordinal` (a naturally ordered scale: `remaining_bucket`, `remaining_years`, `original_years`, `coupon`, `settlement_lag`) or `category` (`isin`). The UI uses it for defaults and sorting (§7).
+
 Each dimension has a *value expression* (what is shown) and a *sort expression* (natural order; for `remaining_bucket` it is the bucket number). Bucket edges are the same as in v0.1 (≤365, ≤1095, ≤1825, ≤3650, else 10Y+). Time dimensions use the same period expressions as the existing time series.
 
 ### Measures (`id` → formula over the filtered rows of the group → unit)
@@ -66,12 +68,12 @@ Division by zero gives `null` (rendered "–"). Min/max yields are true extremes
 
 ## 4. Query semantics
 
-- Request: `dimensions` (0–2 ids, no duplicates), `measures` (1–4 ids, no duplicates), `sort_by` (`"group"` or one of the selected measure ids), `order` (`asc`/`desc`), `limit` (1–5000, default 100), plus the `filter`.
+- Request: `dimensions` (0–2 ids, no duplicates), `measures` (1–4 ids, no duplicates), `sort_by` (`"group"` or one of the selected measure ids), `order` (`asc`/`desc`, default `asc`), `limit` (1–5000, default 100), plus the `filter`.
 - Zero dimensions is allowed: one row per currency (totals).
 - **`limit` is per currency**: top N within RSD and top N within EUR. A single global top-N would let RSD's much larger numbers push EUR out entirely.
 - Ordering: `sort_by = group` orders by the dimensions' sort expressions; a measure orders by that measure, `null`s last, then by the dimensions as tie-breaker (so results are deterministic).
 - Truncation: the server fetches `limit + 1` per currency, returns `limit`, and lists the currencies that were cut in `truncated_currencies`. The UI shows "prikazano prvih N" for them.
-- Default sort suggested by the UI: group-ascending when the first dimension is a time dimension, otherwise first measure descending.
+- Default sort suggested by the UI: group-ascending when the first dimension is of kind `time` or `ordinal` (or there is no dimension), first measure descending when it is of kind `category` (ISIN). The defaults follow the first dimension until the user touches the control.
 - All SQL is parameterized. Every identifier or expression comes from the catalog (dimension/measure ids are enums); nothing user-supplied reaches SQL text.
 
 Shape of the SQL (illustrative):
@@ -89,7 +91,7 @@ SELECT ... FROM r WHERE rn <= :limit + 1 ORDER BY currency, rn
 
 ## 5. API
 
-- `GET /api/pivot/catalog` → `{dimensions: [{id, label, kind}], measures: [{id, label, unit}], limits: {max_dimensions: 2, max_measures: 4, max_limit: 5000}}`.
+- `GET /api/pivot/catalog` → `{dimensions: [{id, label, kind}], measures: [{id, label, unit}], limits: {max_dimensions: 2, max_measures: 4, max_limit: 5000, default_limit: 100}}`.
 - `POST /api/query/pivot` body `{filter, dimensions, measures, sort_by, order, limit}` →
   ```json
   {"dimensions": [{"id": "isin", "label": "Hartija (ISIN)"}],
@@ -98,15 +100,15 @@ SELECT ... FROM r WHERE rn <= :limit + 1 ORDER BY currency, rn
    "truncated_currencies": []}
   ```
   Dimension values keep their natural type (numbers for numeric dimensions, ISO strings for dates, labels for buckets).
-- `POST /api/export/pivot` body as above + `format` (`csv`/`xlsx`) → `{path, rows}`, written like the existing export (columns: currency, dimensions…, measures…).
-- Saved queries (`PUT /api/saved-queries`) accept an optional `pivot` object (`dimensions, measures, sort_by, order, limit, chart`) next to the filter; `GET` returns it. Old entries without `pivot` keep working (they restore filters only).
+- `POST /api/export/pivot` body as above + `format` (`csv`/`xlsx`) → `{path, rows, truncated_currencies}`, written like the existing export (columns: currency, dimensions…, measures…). The export is cut by the same per-currency `limit` as the screen, so `truncated_currencies` tells the client which currencies were cut; the UI keeps the truncation notice visible after an export. Files are named `<stem>_<YYYYMMDD_HHMMSS>.<ext>`; on a same-second collision the file is created exclusively and gets a numeric suffix (`_2`, `_3`, …). The overview export (`POST /api/export`) shares the same helpers (`unique_export_path`, `write_table` in `api/exporting.py`).
+- Saved queries (`PUT /api/saved-queries`) accept an optional `pivot` object (`dimensions, measures, sort_by, order, limit, chart`) next to the filter; `GET` returns each item as `{name, filter, pivot}`, where `pivot` is `null` for legacy rows saved before the builder existed. Those keep working (they restore filters only).
 - Invalid input → HTTP 422: unknown id, duplicates, more than 2 dimensions, 0 or more than 4 measures, `sort_by` that is not `"group"` or a selected measure, `limit` out of range.
 
 The chart type is **not** part of the query: the server returns the same rows for every chart; chart choice lives in the client and in the saved `pivot.chart` (`{type, horizontal}`).
 
 ## 6. Storage
 
-`saved_queries` gains a nullable `pivot_json TEXT` column. Fresh databases get it from the schema; existing databases are migrated in `init_schema` (check `PRAGMA table_info`, `ALTER TABLE … ADD COLUMN` if missing, bump `meta.schema_version` to `2`). Migration is idempotent and never touches `trades`.
+`saved_queries` gains a nullable `pivot_json TEXT` column. Fresh databases get it from the schema; existing databases are migrated in `init_schema` (check `PRAGMA table_info`, `ALTER TABLE … ADD COLUMN` if missing, bump `meta.schema_version` to `2`; `SCHEMA_VERSION = 2`). The migration is in place, so no data is rebuilt or re-imported. It is idempotent and never touches `trades`.
 
 ## 7. UI
 
@@ -114,7 +116,7 @@ The chart type is **not** part of the query: the server returns the same rows fo
 - Builder bar (Serbian Latin):
   - **Grupiši po**: two selectors (second optional), from the catalog.
   - **Mere**: checkboxes (1–4).
-  - **Prikaz**: bar | line | scatter | heatmap | table; "Horizontalno" toggle for bars (default on when the first dimension is `isin`).
+  - **Prikaz**: bar | line | scatter | heatmap | table; "Horizontalno" toggle for bars (default on when the first dimension is `isin`). The saved and restored `chart` config is `{type, horizontal}`.
   - **Sortiraj**: "po grupi" or by a selected measure, ↑/↓; **Prvih N po valuti**.
   - Updates automatically (debounced) as the user changes anything, like the filters.
 - Which chart fits which selection (the UI explains it instead of failing):
@@ -127,15 +129,16 @@ The chart type is **not** part of the query: the server returns the same rows fo
 | heatmap | exactly 2 dimensions, 1 measure | x = dim1, y = dim2, colour = measure |
 | table | any | result table only |
 
-- Currency: one panel (subplot) per currency, with its own axis for money measures, so RSD and EUR are never on one scale. Colours per currency match the existing views.
-- Below the chart: the result table (currency, dimensions, measures), export buttons (CSV/XLSX), and a note when `truncated_currencies` is not empty.
+- Currency: one panel (subplot) per currency, with its own axis for money measures, so RSD and EUR are never on one scale. Colours per currency match the existing views. Horizontal bars with several currencies use a wider gap between the panels, sized from the longest category label, so the labels do not run into the neighbouring panel.
+- Below the chart: the result table (currency, dimensions, measures), export buttons (CSV/XLSX), and a note when `truncated_currencies` is not empty (the note stays visible after an export).
 - ISIN values are displayed as `ISIN · coupon % · maturity year`, enriched on the client from the already loaded `/api/securities` list (display only, not part of the query).
-- Chart/axis construction lives in a small pure JS module (`ui/pivot_chart.js`) that is unit-tested with Node's built-in test runner; DOM wiring stays in `app.js`.
+- Chart/axis construction lives in a small pure JS module (`ui/pivot_chart.js`) that is unit-tested with Node's built-in test runner (`node --test tests_js/pivot_chart.test.js`, files in `tests_js/`); DOM wiring lives in `ui/analysis.js` and `ui/app.js`. The Node tests run in CI (`ci.yml`) and in the release workflow before the seed database is built, so a failing JS test stops a release.
 
 ## 8. Errors and empty states
 
 - No rows for the filters → "Nema rezultata za izabrane filtere."
 - Invalid builder combination for the chosen chart (e.g. heatmap with one dimension) → inline hint, table still shown.
+- No measure selected (0 measures) → the builder shows the hint "Izaberi bar jednu meru.", sends no query, clears the previous chart and table, and disables the CSV/XLSX export buttons.
 - Server 422 → message shown in the existing error banner.
 - Large results are cut by `limit`; stale responses are ignored (same request-token pattern as the existing views).
 
@@ -144,7 +147,7 @@ The chart type is **not** part of the query: the server returns the same rows fo
 - **Service (hand-computed data):** each measure, each dimension (including week = Monday, quarter, bucket order, original-years rounding), zero dimensions, two dimensions, sort by group/measure, `null`s last, deterministic tie-break, per-currency `limit` with truncation, currency never merged.
 - **Golden (real data, expected values computed independently in plain Python):** see §10.
 - **API:** catalog, 422 matrix, response shape, export CSV/XLSX content, saved query with and without `pivot`, migration of a v1 database.
-- **JS unit tests:** chart-validity rules and trace/axis building in `pivot_chart.js`.
+- **JS unit tests:** chart-validity rules and trace/axis building in `pivot_chart.js` (`tests_js/pivot_chart.test.js`, run in CI and before a release).
 - **Manual checklist (browser):** the §10 examples, switching chart types, saving and restoring a view, export, mode switch keeps filters.
 
 ## 10. Acceptance examples (reference values computed from the 5,309-row seed)

@@ -5,6 +5,8 @@ government securities (2020 → today): multi-dimensional filters, interactive c
 daily highest/lowest yields, CSV/XLSX export and an **Update base** button that pulls
 fresh data from NBS onto your own machine. No server, no account.
 
+**Analiza** mode is a small query builder on top of the same filters: group by up to 2 dimensions (security, day/week/month/quarter/year, maturity group, coupon, ...), pick up to 4 measures (turnover, quantity, transactions, weighted yield, ...), and show them as a bar, line, scatter, heatmap or table, optionally limited to the top N per currency. Currencies are never mixed: every result is split per currency. Results export to CSV/XLSX and the whole view (filters plus builder) can be saved and restored.
+
 ## Install (users)
 1. Download `SecuritiesAnalyzer-windows.zip` from the latest GitHub Release and unzip it.
 2. Run `SecuritiesAnalyzer.exe`.
@@ -23,6 +25,7 @@ Without `data/seed.db` the app starts empty; press **Update base** to download e
 
 ## Develop
     python -m pytest -q     # real-data tests run when SA_RAW_DIR points at the yearly CSVs
+    node --test tests_js/pivot_chart.test.js   # chart logic unit tests
 The `httpx2` dev dependency exists because Starlette's TestClient prefers it.
 
 ## Notes
