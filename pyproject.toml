@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 desktop = ["pywebview>=5.3"]
-dev = ["pytest>=8", "pyinstaller>=6.10"]
+dev = ["pytest>=8", "httpx2>=2.0", "pyinstaller>=6.10"]
 
 [tool.setuptools.packages.find]
 include = ["securities_analyzer*"]
