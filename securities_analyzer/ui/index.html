@@ -9,6 +9,10 @@
 <body>
 <header>
   <h1>Sekundarno trgovanje državnim hartijama</h1>
+  <nav id="mode-switch" aria-label="Režim">
+    <button id="mode-overview" class="active">Pregled</button>
+    <button id="mode-analysis">Analiza</button>
+  </nav>
   <div id="meta" class="muted"></div>
   <button id="btn-update" class="primary">Update base</button>
 </header>
@@ -95,55 +99,97 @@
 </aside>
 
 <main>
-  <div id="kpi-head" class="muted"></div>
-  <section id="kpis" aria-live="polite"></section>
+  <div id="view-overview">
+    <div id="kpi-head" class="muted"></div>
+    <section id="kpis" aria-live="polite"></section>
 
-  <nav id="tabs">
-    <button data-tab="time" class="active">Prinos kroz vreme</button>
-    <button data-tab="scatter">Prinos i ročnost</button>
-    <button data-tab="buckets">Promet po rokovima</button>
-    <button data-tab="extremes">Dnevni ekstremi</button>
-  </nav>
+    <nav id="tabs">
+      <button data-tab="time" class="active">Prinos kroz vreme</button>
+      <button data-tab="scatter">Prinos i ročnost</button>
+      <button data-tab="buckets">Promet po rokovima</button>
+      <button data-tab="extremes">Dnevni ekstremi</button>
+    </nav>
 
-  <section id="chart-toolbar">
-    <label id="gran-wrap">Granulacija
-      <select id="gran">
-        <option value="day">dan</option>
-        <option value="week">nedelja</option>
-        <option value="month" selected>mesec</option>
-      </select>
-    </label>
-    <label id="exsort-wrap" hidden>Sortiraj
-      <select id="exsort">
-        <option value="trade_date|desc">po datumu (najnoviji)</option>
-        <option value="highest_pct|desc">najveći prinos</option>
-        <option value="lowest_pct|asc">najmanji prinos</option>
-        <option value="range_pct|desc">najveći raspon</option>
-      </select>
-    </label>
-  </section>
-  <div id="chart"></div>
-  <div id="extremes-table" hidden></div>
+    <section id="chart-toolbar">
+      <label id="gran-wrap">Granulacija
+        <select id="gran">
+          <option value="day">dan</option>
+          <option value="week">nedelja</option>
+          <option value="month" selected>mesec</option>
+        </select>
+      </label>
+      <label id="exsort-wrap" hidden>Sortiraj
+        <select id="exsort">
+          <option value="trade_date|desc">po datumu (najnoviji)</option>
+          <option value="highest_pct|desc">najveći prinos</option>
+          <option value="lowest_pct|asc">najmanji prinos</option>
+          <option value="range_pct|desc">najveći raspon</option>
+        </select>
+      </label>
+    </section>
+    <div id="chart"></div>
+    <div id="extremes-table" hidden></div>
 
-  <section id="table-section">
-    <div class="table-bar">
-      <strong id="table-title">Redovi</strong>
-      <span class="spacer"></span>
-      <button id="btn-csv">Izvezi CSV</button>
-      <button id="btn-xlsx">Izvezi XLSX</button>
-    </div>
-    <div class="table-wrap"><table id="rows"></table></div>
-    <div class="pager">
-      <button id="prev">‹</button>
-      <span id="page-info"></span>
-      <button id="next">›</button>
-    </div>
-  </section>
+    <section id="table-section">
+      <div class="table-bar">
+        <strong id="table-title">Redovi</strong>
+        <span class="spacer"></span>
+        <button id="btn-csv">Izvezi CSV</button>
+        <button id="btn-xlsx">Izvezi XLSX</button>
+      </div>
+      <div class="table-wrap"><table id="rows"></table></div>
+      <div class="pager">
+        <button id="prev">‹</button>
+        <span id="page-info"></span>
+        <button id="next">›</button>
+      </div>
+    </section>
+  </div>
+  <div id="view-analysis" hidden>
+    <section id="builder">
+      <div class="b-row">
+        <label>Grupiši po <select id="b-dim1"></select></label>
+        <label>zatim po <select id="b-dim2"></select></label>
+        <fieldset id="b-measures"><legend>Mere (najviše 4)</legend></fieldset>
+      </div>
+      <div class="b-row">
+        <label>Prikaz
+          <select id="b-chart">
+            <option value="bar">Stubići</option>
+            <option value="line">Linija</option>
+            <option value="scatter">Tačkasti grafik</option>
+            <option value="heatmap">Toplotna mapa</option>
+            <option value="table">Samo tabela</option>
+          </select>
+        </label>
+        <label class="chk"><input type="checkbox" id="b-horizontal"> horizontalno</label>
+        <label>Sortiraj <select id="b-sort"></select></label>
+        <label><select id="b-order">
+          <option value="desc">opadajuće</option><option value="asc">rastuće</option>
+        </select></label>
+        <label>Prvih N po valuti <input type="number" id="b-limit" min="1" max="5000" step="1" value="25"></label>
+      </div>
+      <div id="b-hint" class="muted"></div>
+    </section>
+    <div id="a-chart"></div>
+    <div id="a-notice" class="muted"></div>
+    <section id="a-table-section">
+      <div class="table-bar">
+        <strong id="a-table-title">Rezultat</strong>
+        <span class="spacer"></span>
+        <button id="a-csv">Izvezi CSV</button>
+        <button id="a-xlsx">Izvezi XLSX</button>
+      </div>
+      <div class="table-wrap"><table id="a-rows"></table></div>
+    </section>
+  </div>
 </main>
 </div>
 
 <footer class="muted">Podaci: Narodna banka Srbije · <span id="foot-range"></span></footer>
 <script src="vendor/plotly.min.js"></script>
+<script src="pivot_chart.js"></script>
+<script src="analysis.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&l
 const fmt = (n, d = 0) => n == null ? "–" : Number(n).toLocaleString("sr-RS", {minimumFractionDigits: d, maximumFractionDigits: d});
 const COLORS = {RSD: "#1f6feb", EUR: "#d9480f"};
 const colorFor = (c) => COLORS[c] || "#6b7280";
-const state = {tab: "time", sort: "trade_date", order: "desc", page: 1, pageSize: 100, total: 0, exSort: "trade_date", exOrder: "desc", emptyDb: false, loadError: "", currencies: []};
+const state = {tab: "time", sort: "trade_date", order: "desc", page: 1, pageSize: 100, total: 0, exSort: "trade_date", exOrder: "desc", emptyDb: false, loadError: "", currencies: [], mode: "overview", securities: {}};
 // request tokens: a response is applied only if no newer request of the same kind was started after it
 const seq = {all: 0, tab: 0, rows: 0};
 const BASIS_WORD = {avg: "prosečni", min: "minimalni", max: "maksimalni"};
@@ -125,13 +125,16 @@ function renderRows(res, basis) {
 }
 
 // purge first: tabs use different axis layouts (e.g. the per-currency subplots) that must not leak between tabs
-const plot = (traces, layout) => {
-  Plotly.purge("chart");
-  return Plotly.newPlot("chart", traces, Object.assign({
+const plot = (traces, layout, div = "chart") => {
+  Plotly.purge(div);
+  return Plotly.newPlot(div, traces, Object.assign({
     margin: {l: 60, r: 20, t: 20, b: 50}, paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
     font: {color: getComputedStyle(document.body).color}, legend: {orientation: "h", y: -0.2},
   }, layout), {responsive: true, displaylogo: false});
 };
+
+// shared with analysis.js (loaded before this file, used only after init)
+window.App = {api, readFilter, writeFilter, showError, fmt, esc, colorFor, plot, securities: () => state.securities || {}};
 
 const groupBy = (rows, key) => rows.reduce((m, r) => ((m[r[key]] = m[r[key]] || []).push(r), m), {});
 const emptyChart = (msg) => plot([], {annotations: [{text: msg, showarrow: false, font: {size: 14}}], xaxis: {visible: false}, yaxis: {visible: false}});
@@ -254,7 +257,18 @@ async function refreshAll(resetPage = true) {
 
 const EMPTY_DB_HINT = "Baza je prazna. Klikni „Update base“ da preuzmeš podatke sa NBS-a.";
 let timer = null;
-const debounced = () => { clearTimeout(timer); timer = setTimeout(() => refreshAll(true), 300); };
+
+function setMode(mode) {
+  state.mode = mode;
+  $("view-overview").hidden = mode !== "overview";
+  $("view-analysis").hidden = mode !== "analysis";
+  $("mode-overview").classList.toggle("active", mode === "overview");
+  $("mode-analysis").classList.toggle("active", mode === "analysis");
+  Analysis.setActive(mode === "analysis");
+  if (mode === "overview") refreshAll(true);
+}
+const refreshCurrent = () => (state.mode === "analysis" ? Analysis.onFilterChange() : refreshAll(true));
+const debounced = () => { clearTimeout(timer); timer = setTimeout(refreshCurrent, 300); };
 
 async function loadMeta() {
   const m = await api("/api/meta");
@@ -268,6 +282,7 @@ async function loadMeta() {
 
 async function loadIsins() {
   const sel = await api("/api/securities");
+  state.securities = Object.fromEntries(sel.map((s) => [s.isin, s]));
   // keep whatever the user has ticked while the list is rebuilt (e.g. after an update)
   const ticked = [...document.querySelectorAll("input[name=currency]:checked")].map((i) => i.value);
   state.currencies = [...new Set(sel.map((s) => s.currency))].sort();
@@ -277,7 +292,7 @@ async function loadIsins() {
 
 async function loadSaved() {
   const items = await api("/api/saved-queries");
-  window.__saved = Object.fromEntries(items.map((i) => [i.name, i.filter]));
+  window.__saved = Object.fromEntries(items.map((i) => [i.name, i]));
   $("saved").innerHTML = items.map((i) => `<option>${esc(i.name)}</option>`).join("");
 }
 
@@ -301,7 +316,7 @@ async function runUpdate() {
   } catch (e) { $("update-log").textContent = `GREŠKA: ${e.message}`; }
   $("btn-update").disabled = false;
   try { state.loadError = ""; await Promise.all([loadMeta(), loadIsins()]); } catch (e) { state.loadError = e.message; }
-  await refreshAll();
+  await refreshCurrent();
 }
 
 /* ---------- export ---------- */
@@ -316,7 +331,9 @@ async function doExport(format) {
 /* ---------- wiring ---------- */
 // delegated, so the dynamically built currency checkboxes are covered too
 $("filters").addEventListener("input", (ev) => { if (ev.target.id !== "saved") debounced(); });
-$("btn-reset").onclick = () => { resetForm(); refreshAll(); };
+$("btn-reset").onclick = () => { resetForm(); refreshCurrent(); };
+$("mode-overview").onclick = () => setMode("overview");
+$("mode-analysis").onclick = () => setMode("analysis");
 $("btn-update").onclick = runUpdate;
 $("btn-csv").onclick = () => doExport("csv");
 $("btn-xlsx").onclick = () => doExport("xlsx");
@@ -347,10 +364,17 @@ $("btn-save").onclick = async () => {
   if (raw === null) return;                      // cancelled
   const name = raw.trim();
   if (!name) { showError("Naziv upita ne sme biti prazan."); return; }
-  try { await api("/api/saved-queries", {method: "PUT", body: {name, filter: readFilter()}}); await loadSaved(); $("saved").value = name; }
+  try { await api("/api/saved-queries", {method: "PUT", body: {name, filter: readFilter(), pivot: state.mode === "analysis" ? Analysis.getConfig() : null}}); await loadSaved(); $("saved").value = name; }
   catch (e) { showError(e.message); }
 };
-$("btn-load").onclick = () => { const f = (window.__saved || {})[$("saved").value]; if (f) { writeFilter(f); refreshAll(); } };
+$("btn-load").onclick = () => {
+  const item = (window.__saved || {})[$("saved").value];
+  if (!item) return;
+  writeFilter(item.filter);
+  // setMode always refreshes the target view (filter is already written), so no extra refreshCurrent();
+  // the pivot config goes in first so the first Analiza request already uses it
+  if (item.pivot) { Analysis.setConfig(item.pivot); setMode("analysis"); } else { setMode("overview"); }
+};
 $("btn-delete").onclick = async () => {
   const name = $("saved").value;
   if (!name || !window.confirm(`Obrisati upit „${name}“?`)) return;
@@ -365,5 +389,7 @@ setInterval(beat, 10000);
 
 (async function init() {
   try { await Promise.all([loadMeta(), loadIsins(), loadSaved()]); } catch (e) { state.loadError = e.message; }
+  // the overview must keep working if the pivot catalog fails to load
+  try { await Analysis.init(); } catch (e) { state.loadError = e.message; }
   await refreshAll();
 })();

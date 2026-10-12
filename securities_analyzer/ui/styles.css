@@ -53,3 +53,15 @@ tr.flag td { color: var(--warn); }
 .pager { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 6px; }
 footer { padding: 10px 16px; text-align: center; }
 @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } aside { position: static; max-height: none; } }
+#mode-switch { display: flex; gap: 6px; }
+#mode-switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+#builder { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.b-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; margin-bottom: 6px; }
+.b-row label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.b-row label.chk { flex-direction: row; align-items: center; gap: 4px; }
+#b-measures { display: flex; flex-wrap: wrap; gap: 4px 12px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+#b-measures label { flex-direction: row; align-items: center; gap: 4px; color: var(--ink); }
+#b-hint.warn { color: var(--warn); }
+#a-chart { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; height: 420px; }
+#a-notice { margin: 6px 2px; }
+#a-table-section { margin-top: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }

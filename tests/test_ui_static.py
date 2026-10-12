@@ -22,3 +22,15 @@ def test_ui_has_settlement_lag_filter_and_dynamic_currency_slot(db_path):
 def test_ui_script_sends_heartbeat(db_path):
     c = TestClient(create_app(db_path), base_url="http://127.0.0.1")
     assert "/api/heartbeat" in c.get("/app.js").text
+
+
+def test_analysis_assets_and_mode_switch_are_served(db_path):
+    c = TestClient(create_app(db_path), base_url="http://127.0.0.1")
+    html = c.get("/").text
+    for needle in ('id="mode-overview"', 'id="mode-analysis"', 'id="view-overview"',
+                   'id="view-analysis"', "pivot_chart.js", "analysis.js"):
+        assert needle in html, needle
+    for asset in ("pivot_chart.js", "analysis.js"):
+        r = c.get("/" + asset)
+        assert r.status_code == 200 and len(r.text) > 500
+    assert html.index("pivot_chart.js") < html.index("analysis.js") < html.index("app.js")
