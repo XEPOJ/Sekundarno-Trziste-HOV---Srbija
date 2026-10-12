@@ -88,6 +88,13 @@ def watch_heartbeat(get_last, server, *, clock=time.monotonic, sleep=time.sleep,
         sleep(interval)
 
 
+def server_config(fastapi_app, port: int) -> uvicorn.Config:
+    # log_config=None: a windowed PyInstaller exe has no stdout/stderr, and uvicorn's default
+    # logging setup then fails at startup. Our own basicConfig (app.log) handles logging.
+    return uvicorn.Config(fastapi_app, host="127.0.0.1", port=port, log_level="warning",
+                          log_config=None)
+
+
 def run() -> None:
     data_dir = user_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -103,8 +110,7 @@ def run() -> None:
 
     port = find_free_port()
     fastapi_app = create_app(db_path)
-    server = uvicorn.Server(uvicorn.Config(
-        fastapi_app, host="127.0.0.1", port=port, log_level="warning"))
+    server = uvicorn.Server(server_config(fastapi_app, port))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     deadline = time.time() + 15

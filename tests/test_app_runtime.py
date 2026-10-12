@@ -128,6 +128,19 @@ def test_run_falls_back_to_browser_and_exits_when_heartbeats_stop(tmp_path, monk
     assert window_calls == []                       # unusable WebView2 -> no window attempted
 
 
+def test_server_config_works_without_console_streams(monkeypatch):
+    # A PyInstaller --windowed exe has sys.stdout/stderr = None. uvicorn's default logging setup
+    # then raises "Unable to configure formatter 'default'" and the app dies on start.
+    from fastapi import FastAPI
+
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    monkeypatch.setattr(sys, "stdin", None)
+    config = app_module.server_config(FastAPI(), 8123)
+    assert (config.host, config.port) == ("127.0.0.1", 8123)
+    assert config.log_config is None                # our own app.log logging is the only logging
+
+
 def test_default_heartbeat_timing_tolerates_throttled_background_tabs():
     # Browsers throttle timers in hidden tabs to ~1/min, so the timeout must be generous.
     assert app_module.HEARTBEAT_TIMEOUT_S >= 180
