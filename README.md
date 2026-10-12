@@ -1,0 +1,29 @@
+# Securities Analyzer
+
+Standalone Windows program for exploring NBS secondary-market trading of Serbian
+government securities (2020 → today): multi-dimensional filters, interactive charts,
+daily highest/lowest yields, CSV/XLSX export and an **Update base** button that pulls
+fresh data from NBS onto your own machine. No server, no account.
+
+## Install (users)
+1. Download `SecuritiesAnalyzer-windows.zip` from the latest GitHub Release and unzip it.
+2. Run `SecuritiesAnalyzer.exe`.
+3. Windows SmartScreen may warn about an unsigned app: "More info" → "Run anyway".
+4. Press **Update base** from time to time. Your data lives in `%APPDATA%\SecuritiesAnalyzer\`.
+
+## Run from source
+    python -m venv .venv && .venv\Scripts\activate
+    pip install -e ".[dev,desktop]"
+    python -m securities_analyzer fetch-all data/raw
+    python -m securities_analyzer build-seed data/raw data/seed.db
+    python -m securities_analyzer
+Without `data/seed.db` the app starts empty; press **Update base** to download everything.
+
+## Develop
+    python -m pytest -q     # real-data tests run when SA_RAW_DIR points at the yearly CSVs
+
+## Notes
+- Source: Narodna banka Srbije (webappcenter.nbs.rs). Check NBS terms of use before redistributing data.
+- Each row is a *daily aggregate* per ISIN, not a single trade. Totals and weighted yields are always shown per currency.
+- Plotly's PNG button may not save inside the app window; it works when the app falls back to the browser.
+- The `httpx2` dev dependency exists because Starlette's TestClient prefers it.

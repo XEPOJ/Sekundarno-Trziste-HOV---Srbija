@@ -1,0 +1,32 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev,desktop]"
+      - name: Download NBS data (also used for the golden tests)
+        run: python -X utf8 -m securities_analyzer fetch-all data/raw
+      - name: Tests
+        run: python -m pytest -q
+        env:
+          SA_RAW_DIR: data/raw
+      - name: Build seed database
+        run: python -X utf8 -m securities_analyzer build-seed data/raw data/seed.db
+      - name: Build exe
+        run: powershell -ExecutionPolicy Bypass -File scripts/build_exe.ps1
+      - name: Zip
+        run: Compress-Archive -Path dist\SecuritiesAnalyzer -DestinationPath SecuritiesAnalyzer-windows.zip
+        shell: pwsh
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: SecuritiesAnalyzer-windows.zip
+          generate_release_notes: true

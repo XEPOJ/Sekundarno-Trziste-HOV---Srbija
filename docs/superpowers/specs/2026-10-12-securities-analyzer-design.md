@@ -53,8 +53,8 @@ Column map (position → DB column):
 | 2 | Датум доспећа | `maturity_date` | DATE |
 | 3 | ISIN | `isin` | TEXT |
 | 4 | Рочност у данима | `original_maturity_days` | INT |
-| 5 | Валута | `currency` | TEXT (RSD/EUR) |
-| 6 | Купонска стопа | `coupon_pct` | REAL |
+| 5 | Валута | `currency` | TEXT (any 3 uppercase letters, e.g. RSD/EUR) |
+| 6 | Купонска стопа | `coupon_pct` | REAL (`-` for zero-coupon T-bills is stored as `0.0`) |
 | 7 | Преостала рочност у данима | `remaining_maturity_days` | INT |
 | 8 | Количина | `quantity` | INT |
 | 9 | Број трансакција | `transaction_count` | INT |
@@ -81,7 +81,8 @@ securities_analyzer/
   ui/        static HTML/JS/CSS, vendored Plotly (no CDN)
   app.py     start server on 127.0.0.1:<port>, open window
 tests/
-scripts/build_seed.py   CSV folder -> seed.db
+CLI `python -m securities_analyzer build-seed|fetch-all`   (CSV folder -> seed.db; NBS -> CSV folder)
+scripts/build_exe.ps1   PyInstaller one-folder build
 .github/workflows/release.yml
 ```
 
@@ -126,29 +127,36 @@ reason code. Flagged rows are **kept** and surfaced in the UI, never silently dr
 | Field | Meaning |
 |---|---|
 | `date_from`, `date_to` | trade date, **inclusive** both ends |
-| `yield_min`, `yield_max` | bounds on the chosen yield basis, in percentage points |
+| `yield_pct` | `Range`; bounds on the chosen yield basis, in percentage points |
 | `yield_basis` | `avg` (default) / `min` / `max` → `avg_yield_pct` etc. |
-| `remaining_maturity_min/max` | years (UI) → days |
-| `original_maturity_min/max` | years (UI) → days |
-| `currency` | list of `RSD`/`EUR` |
+| `remaining_maturity_years`, `original_maturity_years` | `Range`; years (UI) → days |
+| `coupon_pct` | `Range`; percentage points |
+| `settlement_lag_days` | `Range`; days |
+| `currency` | list of 3-letter uppercase currency codes (any, e.g. `RSD`/`EUR`) |
 | `isin` | list |
-| `coupon_min/max` | percentage points |
 | `turnover_min` | in the row's own currency |
-| `settlement_lag` | optional min/max days |
+
+`Range` is `{min, max, min_exclusive, max_exclusive}` (all optional; the flags default
+to `false`). It is used for yield, remaining/original maturity, coupon and settlement
+lag.
 
 Decisions:
 
 - **"Longer than 3 years" defaults to remaining maturity** (user decision,
   2026-10-12); original maturity is a separate filter.
 - Years → days uses **365 days/year** (`3 years = 1095 days`), consistent with the
-  existing maturity buckets. "More than" is strict `>`; "at least" is `>=`; the UI
-  labels which one each field uses.
+  existing maturity buckets. Each bound has an `*_exclusive` flag (default
+  inclusive): "more than" sets `min_exclusive` (strict `>`), "at least" leaves it off
+  (`>=`); the UI labels which one each field uses. Maturity-year bounds are converted
+  to days (x365) and rounded to 6 decimals to avoid floating-point noise.
 - Remaining maturity is the value stored **on each row** (it shrinks day by day), so
   the filter is evaluated per row, not per security.
 - Yield filters apply to the row's daily aggregate. A row whose *average* yield is
   3.6% but *min* 3.2% passes `avg > 3.5`. The basis is user-selectable and shown in
   the result header.
 - UI date input accepts `dd.mm.yyyy`; API uses ISO `yyyy-mm-dd`.
+- Currency codes are validated as any 3 uppercase letters (not only RSD/EUR), so a
+  new currency on NBS never blocks an update.
 - All SQL is parameterized; `FilterSpec` is validated (types, ranges, enum values)
   before SQL is built. Unknown fields are rejected.
 
@@ -180,6 +188,10 @@ For a `FilterSpec` the API returns:
    ISIN's trades that day; no cross-day aggregation of them is ever averaged.
 5. **Data quality**: count of flagged rows within the selection.
 
+The daily-extremes chart makes its own chronological request (limit 5000) so the
+band covers the whole selection, while the extremes table uses the user's chosen
+sort (limit 500).
+
 Exports: results table → CSV/XLSX; charts → PNG (Plotly built-in).
 
 ## 7. UI (Serbian, Latin script)
@@ -188,6 +200,9 @@ Single page, Power BI-like: left filter panel, top KPI strip, centre chart tabs,
 bottom results table. Charts and table react to the same filter state (debounced).
 Saved queries and a "Reset" action. Plotly is vendored so the app works offline
 (except Update).
+
+Saved queries use `GET/PUT /api/saved-queries` and
+`DELETE /api/saved-queries/{name:path}` (the `path` converter allows `/` in names).
 
 Footer: "Poslednje ažuriranje: …", "Podaci: Narodna banka Srbije" (attribution),
 data range in the DB, app version.
@@ -226,6 +241,8 @@ and show a notice.
 - Header or column-count change → "NBS format changed, update the app" (the main
   external risk; fixed by shipping a new release).
 - Corrupt or locked DB → message with DB path; never auto-delete the user DB.
+- Fatal startup errors are shown in a native message dialog (the windowed exe has no
+  console) and the process exits with a non-zero code.
 - Invalid filter → field-level error in the UI (HTTP 422 from the API).
 
 ## 10. Testing (TDD, pytest)
@@ -241,15 +258,19 @@ and show a notice.
 - `updater`: against a local fake HTTP server (success, truncated file, 500, format
   change, gap of several years). No live network in the test suite; one manual
   smoke test against NBS before each release.
-- `api`: contract tests with FastAPI `TestClient`.
+- `api`: contract tests with FastAPI `TestClient`. The `dev` extra includes `httpx2`
+  because Starlette's `TestClient` prefers it.
 - UI: manual checklist for v1 (filters ↔ charts ↔ table consistent; layout at
   common window sizes).
 
 ## 11. Packaging and distribution
 
 - PyInstaller, **one-folder** build (fewer antivirus false positives and faster
-  start than one-file), zipped. `seed.db` is built in CI from the CSVs by
-  `scripts/build_seed.py` and bundled.
+  start than one-file), zipped. `seed.db` is built in CI from the CSVs by the CLI
+  (`python -m securities_analyzer fetch-all`, then `build-seed`) and bundled.
+  `scripts/build_exe.ps1` runs PyInstaller locally and in CI.
+- The release workflow downloads the data from NBS in CI; no NBS data is committed to
+  the repo.
 - GitHub Actions on version tag: run tests → build seed → build exe → attach zip to
   the GitHub Release. Users download from Releases. No hosting.
 - Known friction: unsigned binary triggers Windows SmartScreen; documented in the
