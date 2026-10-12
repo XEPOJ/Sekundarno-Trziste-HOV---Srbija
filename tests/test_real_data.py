@@ -98,9 +98,11 @@ def test_golden_pivot_yield_by_year_and_bucket(real_conn):
 
 def test_golden_pivot_group_counts_and_truncation(real_conn):
     base = dict(dimensions=["date_day", "isin"], measures=["turnover"], sort_by="group", order="asc")
-    full = run_pivot(real_conn, FilterSpec(), PivotQuery(**base, limit=5000))
-    assert len(_rows(full, "RSD")) == 3887 and len(_rows(full, "EUR")) == 1141
+    # Bounded to closed years: release.yml downloads live NBS data, so an open-ended range drifts.
+    closed = FilterSpec(date_to="2025-12-31")
+    full = run_pivot(real_conn, closed, PivotQuery(**base, limit=5000))
+    assert len(_rows(full, "RSD")) == 3563 and len(_rows(full, "EUR")) == 1048
     assert full["truncated_currencies"] == []
-    cut = run_pivot(real_conn, FilterSpec(), PivotQuery(**base, limit=1000))
+    cut = run_pivot(real_conn, closed, PivotQuery(**base, limit=1000))
     assert len(_rows(cut, "RSD")) == 1000 and len(_rows(cut, "EUR")) == 1000
     assert cut["truncated_currencies"] == ["EUR", "RSD"]
