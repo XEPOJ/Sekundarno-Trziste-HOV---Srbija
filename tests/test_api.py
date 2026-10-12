@@ -164,3 +164,34 @@ def test_saved_query_bad_names_are_422(client, name):
 def test_saved_query_name_is_stripped(client):
     assert client.put("/api/saved-queries", json={"name": "  Moj  ", "filter": {}}).json() == {"saved": "Moj"}
     assert client.get("/api/saved-queries").json()[0]["name"] == "Moj"
+
+
+def test_saved_query_with_pivot_roundtrip(client):
+    pivot = {"dimensions": ["isin"], "measures": ["turnover", "quantity"], "sort_by": "turnover",
+             "order": "desc", "limit": 10, "chart": {"type": "bar", "horizontal": True}}
+    body = {"name": "Top hartije", "filter": {"currency": ["RSD"]}, "pivot": pivot}
+    assert client.put("/api/saved-queries", json=body).status_code == 200
+    (item,) = client.get("/api/saved-queries").json()
+    assert item["name"] == "Top hartije" and item["filter"]["currency"] == ["RSD"]
+    assert item["pivot"] == pivot
+
+
+def test_saved_query_without_pivot_has_null_and_overwrite_clears(client):
+    pivot = {"dimensions": [], "measures": ["turnover"], "sort_by": "group", "order": "asc",
+             "limit": 100, "chart": {"type": "table", "horizontal": False}}
+    client.put("/api/saved-queries", json={"name": "x", "filter": {}, "pivot": pivot})
+    assert client.get("/api/saved-queries").json()[0]["pivot"] == pivot
+    client.put("/api/saved-queries", json={"name": "x", "filter": {}})
+    assert client.get("/api/saved-queries").json()[0]["pivot"] is None
+
+
+@pytest.mark.parametrize("pivot", [
+    {"dimensions": ["nope"]},
+    {"measures": []},
+    {"sort_by": "quantity"},
+    {"chart": {"type": "pie"}},
+    {"limit": 99999},
+])
+def test_saved_query_rejects_invalid_pivot(client, pivot):
+    r = client.put("/api/saved-queries", json={"name": "bad", "filter": {}, "pivot": pivot})
+    assert r.status_code == 422

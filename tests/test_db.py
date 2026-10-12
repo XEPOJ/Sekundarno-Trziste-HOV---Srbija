@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from tests.factories import load_rows, make_row, rows_to_csv
 def test_schema_objects(conn):
     names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master")}
     assert {"trades", "securities", "meta", "saved_queries"} <= names
-    assert get_meta(conn, "schema_version") == "1"
+    assert get_meta(conn, "schema_version") == "2"
 
 
 def test_replace_year_inserts_and_derives_columns(conn):
@@ -153,4 +154,44 @@ def test_ensure_user_db_without_seed_creates_empty(tmp_path):
     ensure_user_db(user, None)
     c = connect(user)
     assert data_range(c) == (None, None, 0)
+    c.close()
+
+
+def test_v1_database_is_migrated_in_place(tmp_path):
+    path = tmp_path / "old.db"
+    raw = sqlite3.connect(path)
+    raw.executescript("""
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE saved_queries (name TEXT PRIMARY KEY, filter_json TEXT NOT NULL);
+        INSERT INTO meta VALUES ('schema_version', '1');
+        INSERT INTO saved_queries VALUES ('stari', '{"currency": ["RSD"]}');
+    """)
+    raw.close()
+    conn = connect(path)
+    init_schema(conn)
+    init_schema(conn)                                    # idempotent
+    assert get_meta(conn, "schema_version") == "2"
+    row = conn.execute("SELECT name, filter_json, pivot_json FROM saved_queries").fetchone()
+    assert (row["name"], row["filter_json"], row["pivot_json"]) == ("stari", '{"currency": ["RSD"]}', None)
+    conn.close()
+
+
+def test_fresh_database_has_pivot_column(conn):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(saved_queries)")]
+    assert cols == ["name", "filter_json", "pivot_json"]
+
+
+def test_ensure_user_db_migrates_existing_v1_database(tmp_path):
+    path = tmp_path / "data.db"
+    raw = sqlite3.connect(path)
+    raw.executescript("""
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE saved_queries (name TEXT PRIMARY KEY, filter_json TEXT NOT NULL);
+        INSERT INTO meta VALUES ('schema_version', '1');
+    """)
+    raw.close()
+    ensure_user_db(path, None)
+    c = connect(path)
+    assert get_meta(c, "schema_version") == "2"
+    assert "pivot_json" in [r[1] for r in c.execute("PRAGMA table_info(saved_queries)")]
     c.close()

@@ -17,6 +17,7 @@ from ..db.repo import data_range, get_meta
 from ..db.schema import connect
 from ..query import service
 from ..query.filters import FilterSpec
+from ..query.pivot import PivotConfig
 from ..updater.nbs import download_year, refresh
 from .jobs import UpdateJob
 
@@ -51,6 +52,7 @@ class ExportBody(QueryBody):
 class SaveBody(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     filter: FilterSpec
+    pivot: PivotConfig | None = None
 
     @field_validator("name")
     @classmethod
@@ -166,16 +168,22 @@ def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = 
 
     @app.get("/api/saved-queries")
     def saved_list(conn=Depends(get_conn)):
-        return [{"name": r["name"], "filter": json.loads(r["filter_json"])}
-                for r in conn.execute("SELECT name, filter_json FROM saved_queries ORDER BY name")]
+        return [
+            {"name": r["name"], "filter": json.loads(r["filter_json"]),
+             "pivot": json.loads(r["pivot_json"]) if r["pivot_json"] else None}
+            for r in conn.execute(
+                "SELECT name, filter_json, pivot_json FROM saved_queries ORDER BY name")
+        ]
 
     @app.put("/api/saved-queries")
     def saved_put(body: SaveBody, conn=Depends(get_conn)):
         with conn:
             conn.execute(
-                "INSERT INTO saved_queries (name, filter_json) VALUES (?, ?) "
-                "ON CONFLICT(name) DO UPDATE SET filter_json = excluded.filter_json",
-                (body.name, body.filter.model_dump_json()))
+                "INSERT INTO saved_queries (name, filter_json, pivot_json) VALUES (?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET filter_json = excluded.filter_json, "
+                "pivot_json = excluded.pivot_json",
+                (body.name, body.filter.model_dump_json(),
+                 body.pivot.model_dump_json() if body.pivot else None))
         return {"saved": body.name}
 
     @app.delete("/api/saved-queries/{name:path}")
