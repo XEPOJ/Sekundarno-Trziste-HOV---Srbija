@@ -1,11 +1,13 @@
 import time
 from datetime import date
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from securities_analyzer.api.app import create_app
 from securities_analyzer.db.schema import connect
+from securities_analyzer.query import service
 from tests.factories import load_rows, make_row, rows_to_csv
 
 
@@ -76,12 +78,20 @@ def test_timeseries_scatter_buckets_extremes(client):
 def test_export(client, tmp_path, fmt):
     j = client.post("/api/export", json={"format": fmt, "filter": {"currency": ["RSD"]}}).json()
     assert j["rows"] == 2
-    from pathlib import Path
     p = Path(j["path"])
     assert p.exists() and p.suffix == f".{fmt}" and p.parent == tmp_path / "exports"
     if fmt == "csv":
-        text = p.read_text(encoding="utf-8-sig")
-        assert text.splitlines()[0].startswith("trade_date,") and len(text.splitlines()) == 3
+        assert p.read_bytes().startswith(b"\xef\xbb\xbf")
+        lines = p.read_text(encoding="utf-8-sig").splitlines()
+        assert lines[0].split(",") == list(service.ROW_COLUMNS) and len(lines) == 3
+    else:
+        from openpyxl import load_workbook
+        wb = load_workbook(p)
+        ws = wb["Podaci"]
+        assert wb.sheetnames == ["Podaci"]
+        data = list(ws.iter_rows(values_only=True))
+        assert list(data[0]) == list(service.ROW_COLUMNS) and len(data) == 3
+        wb.close()
 
 
 def test_saved_queries_crud(client):
@@ -92,6 +102,15 @@ def test_saved_queries_crud(client):
     assert client.delete("/api/saved-queries/Moj upit").status_code == 200
     assert client.get("/api/saved-queries").json() == []
     assert client.put("/api/saved-queries", json={"name": "x", "filter": {"bad": 1}}).status_code == 422
+
+
+def test_saved_query_name_with_slash_can_be_deleted(client):
+    assert client.put("/api/saved-queries", json={"name": "a/b", "filter": {}}).status_code == 200
+    assert client.delete("/api/saved-queries/a%2Fb").status_code == 200
+    assert client.get("/api/saved-queries").json() == []
+    assert client.put("/api/saved-queries", json={"name": "a/b", "filter": {}}).status_code == 200
+    assert client.delete("/api/saved-queries/a/b").status_code == 200
+    assert client.get("/api/saved-queries").json() == []
 
 
 def test_update_flow(client):

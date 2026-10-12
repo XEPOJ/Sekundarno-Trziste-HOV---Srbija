@@ -152,7 +152,7 @@ def create_app(db_path: Path, *, fetch=download_year, export_dir: Path | None = 
                 (body.name, body.filter.model_dump_json()))
         return {"saved": body.name}
 
-    @app.delete("/api/saved-queries/{name}")
+    @app.delete("/api/saved-queries/{name:path}")
     def saved_delete(name: str, conn=Depends(get_conn)):
         with conn:
             conn.execute("DELETE FROM saved_queries WHERE name = ?", (name,))
