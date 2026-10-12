@@ -23,6 +23,15 @@ jobs:
         run: python -X utf8 -m securities_analyzer build-seed data/raw data/seed.db
       - name: Build exe
         run: powershell -ExecutionPolicy Bypass -File scripts/build_exe.ps1
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          $internal = "dist\SecuritiesAnalyzer\_internal"
+          $seed = Get-Item "$internal\data\seed.db" -ErrorAction SilentlyContinue
+          if (-not $seed -or $seed.Length -le 0) { throw "seed.db is missing or empty in the build output" }
+          foreach ($f in @("$internal\securities_analyzer\ui\index.html", "$internal\securities_analyzer\ui\vendor\plotly.min.js")) {
+            if (-not (Test-Path $f)) { throw "Missing from build output: $f" }
+          }
       - name: Zip
         run: Compress-Archive -Path dist\SecuritiesAnalyzer -DestinationPath SecuritiesAnalyzer-windows.zip
         shell: pwsh

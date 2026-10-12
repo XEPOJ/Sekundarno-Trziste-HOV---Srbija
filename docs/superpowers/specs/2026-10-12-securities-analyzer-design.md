@@ -83,7 +83,8 @@ securities_analyzer/
 tests/
 CLI `python -m securities_analyzer build-seed|fetch-all`   (CSV folder -> seed.db; NBS -> CSV folder)
 scripts/build_exe.ps1   PyInstaller one-folder build
-.github/workflows/release.yml
+.github/workflows/ci.yml        tests on push / pull request
+.github/workflows/release.yml   tag build: tests -> seed -> exe -> artifact check -> zip -> release
 ```
 
 Rules of the boundaries:
@@ -92,8 +93,18 @@ Rules of the boundaries:
   touches the DB; `updater` never parses CSV itself (it hands bytes to `ingest`).
 - The frontend only talks to `/api/*`. It contains no business rules, so another
   client (see §12) can reuse the same API shape and SQL.
-- The server binds to `127.0.0.1` only and picks a free port at start.
-- Window: `pywebview`; if unavailable, fall back to the default browser.
+- The server binds to `127.0.0.1` only and picks a free port at start. It also rejects
+  requests whose `Host` header is not `127.0.0.1` or `localhost` (HTTP 400,
+  `TrustedHostMiddleware`, `create_app(..., allowed_hosts=...)`) as a DNS-rebinding guard.
+- Window: `pywebview`; if unavailable, fall back to the default browser. pywebview 6.x
+  does not raise when the Microsoft Edge WebView2 runtime is missing (it silently
+  switches to the IE11 engine), so `app._webview_usable()` checks
+  `webview.platforms.winforms.renderer == "edgechromium"` and, if not, takes the browser
+  fallback. If that internal attribute cannot be inspected, the window is attempted anyway.
+- Browser-fallback lifetime: the windowed exe has no console, so the UI posts
+  `POST /api/heartbeat` (`{"ok": true}`) on load and every 10 s. In fallback mode only, a
+  watchdog stops the server when no heartbeat arrives for 60 s (180 s grace if none ever
+  arrived), which ends the process about a minute after the tab is closed.
 
 ## 4. Database (SQLite, single file)
 
@@ -171,8 +182,8 @@ For a `FilterSpec` the API returns:
    (`Σ(avg_yield × turnover) / Σ turnover`). Min/max prices and yields are never
    summed or averaged across days.
 3. **Chart series**:
-   - Weighted yield over time by day/week/month, one line per currency (optionally
-     per ISIN) — the "graphical expression of the change".
+   - Weighted yield over time by day/week/month, one line per currency (a per-ISIN
+     series is **not in v1**, see §13) — the "graphical expression of the change".
    - Scatter: remaining maturity (x) vs avg yield (y), size = turnover, colour =
      currency, hover = ISIN. This is realised trades, not an official yield curve.
    - Turnover by maturity bucket (0–1Y, 1–3Y, 3–5Y, 5–10Y, 10Y+), per currency.
@@ -188,9 +199,11 @@ For a `FilterSpec` the API returns:
    ISIN's trades that day; no cross-day aggregation of them is ever averaged.
 5. **Data quality**: count of flagged rows within the selection.
 
-The daily-extremes chart makes its own chronological request (limit 5000) so the
-band covers the whole selection, while the extremes table uses the user's chosen
-sort (limit 500).
+The daily-extremes chart makes its own request (newest first, limit 5000, reversed
+client-side) so that, should the cap ever bind, only the oldest days are dropped, while the
+extremes table uses the user's chosen sort (limit 500). The weighted-average line comes
+from `POST /api/query/timeseries` with `granularity: "day"`. The result header names the
+yield basis ("Prinos: prosečni/minimalni/maksimalni (osnova)").
 
 Exports: results table → CSV/XLSX; charts → PNG (Plotly built-in).
 
@@ -220,14 +233,19 @@ Algorithm:
    backoff, identifying `User-Agent: SecuritiesAnalyzer/<version>`), save to a temp file.
 4. Validate with `ingest`: header matches the expected 18 columns, every row parses,
    ≥ 1 row, business keys unique within the file. On any failure: skip that year,
-   report it, keep existing data.
+   report it, keep existing data. **January rule:** a file with 0 rows for the *current*
+   year while nothing is stored for that year yet is not an error (status `ok`, added 0,
+   message "Još nema podataka za tekuću godinu"); any other 0-row file is an error.
 5. Guard: if the new file has < 50% of the rows currently stored for that
    `source_year`, abort that year and warn (protects against a truncated download).
 6. Apply in **one transaction per year**: delete `trades` where
    `source_year = Y`, insert the new rows. A key collision with a *different*
    `source_year` aborts the transaction.
 7. Update `meta`; return a summary: per year `+added / −removed / unchanged`,
-   new data end date, any errors.
+   new data end date, any errors. `last_attempt_utc` and `last_update_result` are written
+   on every run; `last_update_utc` means the last **success** and is written only when at
+   least one year ended `ok`. `/api/meta` returns both `last_update_utc` and
+   `last_attempt_utc`; the footer's "Poslednje ažuriranje" uses the former.
 
 Properties: idempotent, safe to interrupt (transactions), never destroys data on
 network or format errors, no more traffic than 2–3 small files per click.
@@ -289,7 +307,20 @@ call NBS directly because of CORS). v1 keeps this open by (a) keeping the fronte
 static and API-driven and (b) documenting `FilterSpec → SQL` as the single source of
 query semantics. Requires its own spec.
 
-## 13. Assumptions to confirm
+## 13. Deviations from this design and v1 limits
+
+- Numeric filters are `Range {min, max, min_exclusive, max_exclusive}` (§5).
+- `scripts/build_seed.py` is replaced by the CLI subcommands `build-seed` / `fetch-all`;
+  both `build-seed` and `build_seed()` fail (non-zero exit) on zero CSVs or zero rows.
+- The release workflow downloads the data from NBS in CI and verifies the built
+  artifact (non-empty `seed.db`, `index.html`, `plotly.min.js`) before zipping.
+- Currency codes are any 3 uppercase letters; filter list sizes are bounded (50 currencies,
+  500 ISINs) and `page` is capped at 1,000,000 (HTTP 422 beyond that).
+- Saved-query names are trimmed; empty, `.`, `..` and names with control characters
+  are rejected (HTTP 422).
+- **Not in v1:** the per-ISIN time series mentioned (as optional) in §6.3.
+
+## 14. Assumptions to confirm
 
 1. 365-day years for maturity filters (consistent with existing buckets).
 2. Default yield basis = daily average yield (`avg_yield_pct`).
